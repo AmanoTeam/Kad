@@ -1,0 +1,24 @@
+[submodule "submodules/curl"]
+	path = submodules/curl
+	url = https://github.com/curl/curl
+[submodule "submodules/nghttp2"]
+	path = submodules/nghttp2
+	url = https://github.com/nghttp2/nghttp2
+[submodule "submodules/zlib"]
+	path = submodules/zlib
+	url = https://github.com/madler/zlib
+[submodule "submodules/curl-impersonate"]
+	path = submodules/curl-impersonate
+	url = https://github.com/lwthiker/curl-impersonate
+[submodule "submodules/boringssl"]
+	path = submodules/boringssl
+	url = https://github.com/google/boringssl
+[submodule "submodules/bearssl"]
+	path = submodules/bearssl
+	url = https://www.bearssl.org/git/BearSSL
+[submodule "submodules/brotli"]
+	path = submodules/brotli
+	url = https://github.com/google/brotli
+[submodule "submodules/cabundle"]
+	path = submodules/cabundle
+	url = https://github.com/AmanoTeam/CABundle

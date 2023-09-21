@@ -1,0 +1,143 @@
+name: Build
+
+on:
+  push:
+    branches:
+        - '**'
+
+jobs:
+  build:
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@main
+      with:
+        submodules: true
+    - name: Free up some space
+      run: | 
+        rm --recursive --force '/opt' || true
+    - name: Install dependencies
+      run: | 
+        sudo apt-get install --assume-yes golang-go
+    - name: Setup Linux cross-compiler
+      run: | 
+        declare -r SPHYNX_TAG="$(jq --raw-output '.tag_name' <<< "$(curl --connect-timeout '10' --retry '15' --retry-all-errors --fail --silent --url 'https://api.github.com/repos/AmanoTeam/Sphynx/releases/latest')")"
+        declare -r SPHYNX_TARBALL='/tmp/toolchain.tar.xz'
+        declare -r SPHYNX_URL="https://github.com/AmanoTeam/Sphynx/releases/download/${SPHYNX_TAG}/x86_64-unknown-linux-gnu.tar.xz"
+        
+        curl --connect-timeout '10' --retry '15' --retry-all-errors --fail --silent --location --url "${SPHYNX_URL}" --output "${SPHYNX_TARBALL}"
+        tar --directory="$(dirname "${SPHYNX_TARBALL}")" --extract --file="${SPHYNX_TARBALL}"
+        
+        echo 'SPHYNX_HOME=/tmp/sphynx' >> "${GITHUB_ENV}"
+        echo '/tmp/sphynx/bin' >> "${GITHUB_PATH}"
+    - name: Setup Android cross-compiler
+      uses: nttld/setup-ndk@main
+      id: setup-ndk
+      with:
+        ndk-version: r25c
+    - name: Post setup settings for Android cross-compiler
+      run: |
+        echo 'ANDROID_HOME=${{ steps.setup-ndk.outputs.ndk-path }}' >> "${GITHUB_ENV}"
+        sudo sed -i '/CMAKE_SHARED_LIBRARY_RUNTIME_C_FLAG/d' /usr/local/share/cmake-*/Modules/Platform/Android.cmake
+        echo '${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin' >> "${GITHUB_PATH}"
+    - name: Setup Linux musl cross-compiler
+      run: |
+        declare -r RAIDEN_TAG="$(jq --raw-output '.tag_name' <<< "$(curl --connect-timeout '10' --retry '15' --retry-all-errors --fail --silent --url 'https://api.github.com/repos/AmanoTeam/Raiden/releases/latest')")"
+        declare -r RAIDEN_TARBALL='/tmp/toolchain.tar.xz'
+        declare -r RAIDEN_URL="https://github.com/AmanoTeam/Raiden/releases/download/${RAIDEN_TAG}/x86_64-unknown-linux-gnu.tar.xz"
+        
+        curl --connect-timeout '10' --retry '15' --retry-all-errors --fail --silent --location --url "${RAIDEN_URL}" --output "${RAIDEN_TARBALL}"
+        tar --directory="$(dirname "${RAIDEN_TARBALL}")" --extract --file="${RAIDEN_TARBALL}"
+        
+        echo 'RAIDEN_HOME=/tmp/raiden' >> "${GITHUB_ENV}"
+        echo '/tmp/raiden/bin' >> "${GITHUB_PATH}"
+    - name: Setup Tizen cross-compiler
+      run: | 
+        declare -r NUL_TAG="$(jq --raw-output '.tag_name' <<< "$(curl --connect-timeout '10' --retry '15' --retry-all-errors --fail --silent --url 'https://api.github.com/repos/AmanoTeam/Nul/releases/latest')")"
+        declare -r NUL_TARBALL='/tmp/toolchain.tar.xz'
+        declare -r NUL_URL="https://github.com/AmanoTeam/Nul/releases/download/${NUL_TAG}/x86_64-unknown-linux-gnu.tar.xz"
+        
+        curl --connect-timeout '10' --retry '15' --retry-all-errors --fail --silent --location --url "${NUL_URL}" --output "${NUL_TARBALL}"
+        tar --directory="$(dirname "${NUL_TARBALL}")" --extract --file="${NUL_TARBALL}"
+        
+        echo 'NUL_HOME=/tmp/nul' >> "${GITHUB_ENV}"
+        echo '/tmp/nul/bin' >> "${GITHUB_PATH}"
+    - name: Build with CMake
+      run: |
+        declare -r targets=(
+            arm-tizenwearable-linux-gnueabi
+            arm-tizenmobile-linux-gnueabi
+            arm-tizeniot-linux-gnueabi
+            arm-tizeniotheadless-linux-gnueabi
+            arm-linux-gnueabi
+            arm-linux-gnueabihf
+            arm-unknown-linux-musleabihf
+            armv7a-linux-androideabi
+            aarch64-tizeniot-linux-gnu
+            aarch64-linux-android
+            aarch64-linux-gnu
+            aarch64-unknown-linux-musl
+            i386-tizenmobile-linux-gnueabi
+            i386-tizenwearable-linux-gnueabi
+            i386-unknown-linux-musl
+            i686-linux-android
+            i686-linux-gnu
+            x86_64-linux-android
+            x86_64-linux-gnu
+            x86_64-unknown-linux-musl
+        )
+        
+        declare -r OUTPUT_DIRECTORY="$(realpath './output')"
+        
+        mkdir --parent "${OUTPUT_DIRECTORY}"
+        mkdir build && cd build
+        
+        for target in "${targets[@]}"; do
+            echo "Building for ${target}"
+
+            declare KAD_ENABLE_LTO=ON
+            declare OPENSSL_NO_ASM=OFF
+            
+            if [[ "${target}" == arm-tizen* ]]; then
+                OPENSSL_NO_ASM=ON
+            fi
+            
+            cmake -Wno-dev \
+                -DKAD_ENABLE_LTO="${KAD_ENABLE_LTO}" \
+                -DCMAKE_TOOLCHAIN_FILE="./.github/workflows/cmake_toolchains/${target}.cmake" \
+                -DCMAKE_INSTALL_PREFIX="${target}" \
+                -DPERL_EXECUTABLE='/usr/bin/perl' \
+                -DGO_EXECUTABLE='/usr/bin/go' \
+                -DOPENSSL_NO_ASM="${OPENSSL_NO_ASM}" \
+                -DCMAKE_BUILD_TYPE=MinSizeRel ../ 1>/dev/null
+            
+            cmake --build ./ -- --jobs 1>/dev/null
+            cmake --install ./ 1>/dev/null
+                
+            tar --create --file=- "${target}" |  xz --compress -9 > "${OUTPUT_DIRECTORY}/${target}.tar.xz"
+            
+            rm --force --recursive ./*
+        done
+    - name: Upload artifact
+      uses: actions/upload-artifact@main
+      with:
+        path: ./output
+    - name: Get tag name for release
+      if: startsWith(github.event.head_commit.message, 'Bump version')
+      run: echo "VERSION_TAG=${COMMIT_MESSAGE/* }" >> "${GITHUB_ENV}"
+      env:
+        COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+    - name: Create release
+      if: startsWith(github.event.head_commit.message, 'Bump version')
+      uses: softprops/action-gh-release@master
+      with:
+        tag_name: v${{ env.VERSION_TAG }}
+        name: Kad v${{ env.VERSION_TAG }}
+        files: ./output/*
+        draft: true
+        prerelease: false
+        fail_on_unmatched_files: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
