@@ -396,6 +396,17 @@ int main(int argc, char* argv[]) {
 	}
 	*/
 	
+	const struct sigaction sigpipe_action = {
+		.sa_handler = SIG_IGN
+	};
+	
+	if (sigaction(SIGPIPE, &sigpipe_action, NULL) == -1) {
+		const struct SystemError error = get_system_error();
+		fprintf(stderr, "fatal error: could not set signal handler: %s\n", error.message);
+		
+		return EXIT_FAILURE;
+	}
+	
 	char address[512] = {0};
 	int port = 0;
 	
