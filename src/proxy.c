@@ -235,6 +235,10 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
+	if (curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L) != CURLE_OK) {
+		return KADERR_CURL_SETOPT_FAILURE;
+	}
+	
 	struct curl_slist* list __curl_slist_free_all__ = NULL;
 	
 	for (size_t index = 0; index < request.headers.offset; index++) {

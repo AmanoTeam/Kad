@@ -22,3 +22,6 @@
 [submodule "submodules/cabundle"]
 	path = submodules/cabundle
 	url = https://github.com/AmanoTeam/CABundle
+[submodule "submodules/c-ares"]
+	path = submodules/c-ares
+	url = https://github.com/c-ares/c-ares

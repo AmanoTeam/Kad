@@ -26,6 +26,7 @@ set(CURL_USE_BEARSSL OFF)
 set(CURL_USE_OPENSSL ON)
 set(USE_NGHTTP2 ON)
 set(CURL_BROTLI ON)
+set(ENABLE_ARES ON)
 set(CURL_USE_LIBPSL OFF)
 set(CURL_DISABLE_ALTSVC ON)
 set(CURL_DISABLE_CRYPTO_AUTH ON)
@@ -126,6 +127,14 @@ set(BROTLI_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/submodules/brotli/c/include"
 set(BROTLICOMMON_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}brotlicommon${CMAKE_SHARED_LIBRARY_SUFFIX}")
 set(BROTLIDEC_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}brotlidec${CMAKE_SHARED_LIBRARY_SUFFIX}")
 
+set(
+	CARES_INCLUDE_DIR
+	"${CMAKE_CURRENT_SOURCE_DIR}/submodules/c-ares/include"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/c-ares"
+)
+
+set(CARES_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}cares${CMAKE_SHARED_LIBRARY_SUFFIX}")
+
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY)
 
 if (ANDROID)
@@ -137,11 +146,12 @@ add_subdirectory(submodules/zlib EXCLUDE_FROM_ALL)
 add_subdirectory(submodules/boringssl EXCLUDE_FROM_ALL)
 add_subdirectory(submodules/nghttp2 EXCLUDE_FROM_ALL)
 add_subdirectory(submodules/brotli EXCLUDE_FROM_ALL)
+add_subdirectory(submodules/c-ares EXCLUDE_FROM_ALL)
 
 file(REMOVE "${OPENSSL_SSL_LIBRARY}")
 file(REMOVE "${OPENSSL_CRYPTO_LIBRARY}")
 
-foreach(target zlib crypto ssl nghttp2 brotlidec)
+foreach(target zlib crypto ssl nghttp2 brotlidec c-ares)
 	add_custom_command(
 		OUTPUT ${target}
 		COMMAND ${CMAKE_COMMAND} --build ./ --target ${target}
@@ -471,7 +481,7 @@ if (HAIKU)
 endif()
 
 foreach(property RUNTIME_OUTPUT_DIRECTORY LIBRARY_OUTPUT_DIRECTORY)
-	foreach(target libcurl zlib crypto ssl nghttp2 brotlicommon brotlidec)
+	foreach(target libcurl zlib crypto ssl nghttp2 brotlicommon brotlidec c-ares)
 		set_target_properties(
 			${target}
 			PROPERTIES
@@ -516,7 +526,7 @@ if (KAD_ENABLE_LTO)
 	check_ipo_supported(RESULT KAD_HAS_LTO LANGUAGES C)
 	
 	if (KAD_HAS_LTO)
-		foreach(target kad bearssl libcurl zlib crypto ssl nghttp2 brotlicommon brotlidec)
+		foreach(target kad bearssl libcurl zlib crypto ssl nghttp2 brotlicommon brotlidec c-ares)
 			set_target_properties(
 				${target}
 				PROPERTIES
@@ -570,7 +580,7 @@ target_link_libraries(
 	libcurl
 )
 
-foreach(target kad bearssl libcurl zlib crypto ssl nghttp2 brotlicommon brotlidec)
+foreach(target kad bearssl libcurl zlib crypto ssl nghttp2 brotlicommon brotlidec c-ares)
 	install(
 		TARGETS ${target}
 		RUNTIME DESTINATION bin
@@ -617,6 +627,5 @@ if (CMAKE_CROSSCOMPILING)
 		BEFORE
 		PRIVATE
 		-Wl,-rpath-link -Wl,${CMAKE_CURRENT_BINARY_DIR}
-		# -Wl,-rpath-link -Wl,${CMAKE_FIND_ROOT_PATH}/lib -Wl,-rpath-link -Wl,${CMAKE_FIND_ROOT_PATH}/lib64
 	)
 endif()
