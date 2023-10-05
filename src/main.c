@@ -93,32 +93,60 @@ static char target_impersonate[16] = {0};
 		struct FStream* const stream = fstream_open(ca_bundle, FSTREAM_READ);
 		
 		if (stream == NULL) {
+			const struct SystemError error = get_system_error();
+			fprintf(stderr, "fatal error: could not open file at '%s': %s\r\n", ca_bundle, error.message);
+			
 			return KADERR_FSTREAM_OPEN_FAILURE;
 		}
 		
 		if (fstream_seek(stream, 0, FSTREAM_SEEK_END) == -1) {
+			const struct SystemError error = get_system_error();
+			fprintf(stderr, "fatal error: could not seek file at '%s': %s\r\n", ca_bundle, error.message);
+			
+			fstream_close(stream);
+			
 			return KADERR_FSTREAM_SEEK_FAILURE;
 		}
 		
 		const long int file_size = fstream_tell(stream);
 		
 		if (file_size == -1) {
+			const struct SystemError error = get_system_error();
+			fprintf(stderr, "fatal error: could not get current file position of '%s': %s\r\n", ca_bundle, error.message);
+			
+			fstream_close(stream);
+			
 			return KADERR_FSTREAM_TELL_FAILURE;
 		}
 		
 		if (fstream_seek(stream, 0, FSTREAM_SEEK_BEGIN) == -1) {
+			const struct SystemError error = get_system_error();
+			fprintf(stderr, "fatal error: could not seek file at '%s': %s\r\n", ca_bundle, error.message);
+			
+			fstream_close(stream);
+			
 			return KADERR_FSTREAM_SEEK_FAILURE;
 		}
 		
 		curl_blob_global.data = malloc((size_t) file_size);
 		
 		if (curl_blob_global.data == NULL) {
+			const struct SystemError error = get_system_error();
+			fprintf(stderr, "fatal error: could not allocate memory: %s\r\n", error.message);
+			
+			fstream_close(stream);
+			
 			return KADERR_MEMORY_ALLOCATE_FAILURE;
 		}
 		
 		const ssize_t size = fstream_read(stream, curl_blob_global.data, (size_t) file_size);
 		
 		if (size == -1) {
+			const struct SystemError error = get_system_error();
+			fprintf(stderr, "fatal error: could not read contents of file at '%s': %s\r\n", ca_bundle, error.message);
+			
+			fstream_close(stream);
+			
 			return KADERR_FSTREAM_READ_FAILURE;
 		}
 		
@@ -257,7 +285,7 @@ static int request_handler(void* pointer) {
 		}
 		
 		if (matches) {
-			fprintf(stderr, "[warning] ignoring client header '%s' to avoid conflicts with curl-impersonate\n", header->key);
+			fprintf(stderr, "[warn] ignoring client header '%s' to avoid conflicts with curl-impersonate\n", header->key);
 			continue;
 		}
 		
@@ -462,10 +490,10 @@ int main(int argc, char* argv[]) {
 			}
 			
 			strcpy(target_impersonate, argument->value);
-		} else if (strcmp(argument->key, "version") == 0) {
+		} else if (strcmp(argument->key, "v") == 0 || strcmp(argument->key, "version") == 0) {
 			printf("%s v%s (+%s)\n", KAD_NAME, KAD_VERSION, KAD_REPOSITORY);
 			return EXIT_SUCCESS;
-		} else if (strcmp(argument->key, "help") == 0) {
+		} else if (strcmp(argument->key, "h") == 0 || strcmp(argument->key, "help") == 0) {
 			printf("%s\n", KAD_DESCRIPTION);
 			return EXIT_SUCCESS;
 		}
@@ -591,7 +619,7 @@ int main(int argc, char* argv[]) {
 			continue;
 		}
 		
-		fprintf(stderr, "[warning] max number of concurrent connections reached\n");
+		fprintf(stderr, "[warn] max number of concurrent connections reached\n");
 		
 		int index = 0;
 		
@@ -603,6 +631,6 @@ int main(int argc, char* argv[]) {
 		position = 0;
 	}
 	
-	return 0;
+	return EXIT_SUCCESS;
 	
 }

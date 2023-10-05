@@ -103,8 +103,8 @@ set(OPENSSL_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/submodules/boringssl/includ
 set(OPENSSL_CRYPTO_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}crypto${CMAKE_SHARED_LIBRARY_SUFFIX}")
 set(OPENSSL_SSL_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}ssl${CMAKE_SHARED_LIBRARY_SUFFIX}")
 
-file(WRITE ${OPENSSL_SSL_LIBRARY} "x")
-file(WRITE ${OPENSSL_CRYPTO_LIBRARY} "x")
+file(WRITE ${OPENSSL_SSL_LIBRARY} "")
+file(WRITE ${OPENSSL_CRYPTO_LIBRARY} "")
 
 set(
 	NGHTTP2_INCLUDE_DIR
@@ -472,14 +472,6 @@ add_library(
 	submodules/bearssl/src/x509/x509_minimal_full.c
 )
 
-if (HAIKU)
-	target_compile_definitions(
-		bearssl
-		PRIVATE
-		BR_USE_URANDOM BR_USE_UNIX_TIME
-	)
-endif()
-
 foreach(property RUNTIME_OUTPUT_DIRECTORY LIBRARY_OUTPUT_DIRECTORY)
 	foreach(target libcurl zlib crypto ssl nghttp2 brotlicommon brotlidec c-ares)
 		set_target_properties(
@@ -498,7 +490,7 @@ add_executable(
 	src/callbacks.c
 	src/http.c
 	src/cleanup.c
-	src/proxy.c
+	src/main.c
 	src/argparser.c
 	src/threads.c
 )
