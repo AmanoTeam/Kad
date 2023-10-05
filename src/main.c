@@ -448,7 +448,7 @@ int main(int argc, char* argv[]) {
 			break;
 		}
 		
-		if (strcmp(argument->key, "address") == 0) {
+		if (strcmp(argument->key, "host") == 0) {
 			if (argument->value == NULL) {
 				fprintf(stderr, "fatal error: missing required value for argument: --%s\n", argument->key);
 				return EXIT_FAILURE;
