@@ -5,11 +5,11 @@ import os
 import io
 
 parser = argparse.ArgumentParser(
-    prog = "kad",
-    description = None,
-    allow_abbrev = False,
-    add_help = False,
-    epilog = "Note, options that take an argument require a equal sign. E.g. --host=HOST"
+	prog = "kad",
+	description = "A simple HTTP proxy server that forwards all requests through curl-impersonate.",
+	allow_abbrev = False,
+	add_help = False,
+	epilog = "Note, options that take an argument require a equal sign. E.g. --host=HOST"
 )
 
 parser.add_argument(
@@ -22,27 +22,27 @@ parser.add_argument(
 
 parser.add_argument(
 	"-v",
-    "--version",
-    action = "store_true",
-    help = "Display the Kad version and exit."
+	"--version",
+	action = "store_true",
+	help = "Display the Kad version and exit."
 )
 
 parser.add_argument(
-    "--host",
-    required = False,
-    help = "Bind socket to this host. [default: 127.0.0.1]"
+	"--host",
+	required = False,
+	help = "Bind socket to this host. [default: 127.0.0.1]"
 )
 
 parser.add_argument(
-    "--port",
-    required = False,
-    help = "Bind socket to this port. [default: 4000]"
+	"--port",
+	required = False,
+	help = "Bind socket to this port. [default: 4000]"
 )
 
 parser.add_argument(
-    "--target",
-    required = False,
-    help = "Impersonate this target. [default: chrome116]"
+	"--target",
+	required = False,
+	help = "Impersonate this target. [default: chrome116]"
 )
 
 os.environ["LINES"] = "1000"

@@ -30,16 +30,18 @@ Available options:
 
 ```
 $ kad --help
-usage: kad [-h] [--host HOST] [--port PORT] [--target TARGET] [--version]
+usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET]
+
+A simple HTTP proxy server that forwards all requests through curl-impersonate.
 
 options:
-  --help           Show this help message and exit.
+  -h, --help       Show this help message and exit.
+  -v, --version    Display the Kad version and exit.
   --host HOST      Bind socket to this host. [default: 127.0.0.1]
   --port PORT      Bind socket to this port. [default: 4000]
   --target TARGET  Impersonate this target. [default: chrome116]
-  --version        Display the Kad version and exit.
 
-Note, options that take an argument require a equal sign. E.g. --address=ADDRESS
+Note, options that take an argument require a equal sign. E.g. --host=HOST
 ```
 
 You can start a server with all default options by simply running `kad`:
@@ -77,11 +79,11 @@ With PHP + curl:
 
 ```php
 <?php
-$ch = curl_init();
-curl_setopt($ch, CURLOPT_URL, "http://example.com");
-curl_setopt($ch, CURLOPT_PROXY, "http://127.0.0.1:4000");
+$handle = curl_init();
+curl_setopt($handle, CURLOPT_URL, "http://example.com");
+curl_setopt($handle, CURLOPT_PROXY, "http://127.0.0.1:4000");
 
-$response = curl_exec($ch);
+$response = curl_exec($handle);
 ```
 
 ## HTTPS connections

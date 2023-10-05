@@ -5,6 +5,8 @@ This file is auto-generated. Use the ../tools/program_help.h.py tool to regenera
 #define PROGRAM_HELP \
 	"usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET]\n" \
 	"\n" \
+	"A simple HTTP proxy server that forwards all requests through curl-impersonate.\n" \
+	"\n" \
 	"options:\n" \
 	"  -h, --help       Show this help message and exit.\n" \
 	"  -v, --version    Display the Kad version and exit.\n" \
