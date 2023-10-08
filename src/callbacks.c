@@ -133,13 +133,6 @@ size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata)
 			return CURL_WRITEFUNC_ERROR;
 		}
 		
-		// We don't care about Keep-Alive connections
-		code = http_headers_add(&response.headers, "Connection", "close");
-		
-		if (code != KADERR_SUCCESS) {
-			return CURL_WRITEFUNC_ERROR;
-		}
-		
 		const char* const http_version = http_version_stringify(HTTP10);
 		const char* const message = http_status_stringify(response.status);
 		
@@ -179,6 +172,11 @@ size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata)
 			
 			// This header will report an incorrect value for compressed responses, so let's just remove it
 			if (strcasecmp(header->key, "Content-Length") == 0) {
+				continue;
+			}
+			
+			// Kad doesn't support persistent connections, and the HTTP/1.0 protocol already assumes a short-lived connection by default
+			if (strcasecmp(header->key, "Connection") == 0) {
 				continue;
 			}
 			
