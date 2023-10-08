@@ -168,8 +168,12 @@ size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata)
 		for (size_t index = 0; index < response.headers.offset; index++) {
 			const struct HTTPHeader* const header = &response.headers.items[index];
 			
-			// cURL already performs content decoding, so there is no need for this header
+			// cURL already performs content decoding, so there is no need for these headers
 			if (strcasecmp(header->key, "Content-Encoding") == 0) {
+				continue;
+			}
+			
+			if (strcasecmp(header->key, "Transfer-Encoding") == 0) {
 				continue;
 			}
 			
