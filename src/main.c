@@ -247,6 +247,10 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
+	if (curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback_empty) != CURLE_OK) {
+		return KADERR_CURL_SETOPT_FAILURE;
+	}
+	
 	#if defined(KAD_DISABLE_CERTIFICATE_VALIDATION)
 		if (curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L) != CURLE_OK) {
 			return KADERR_CURL_SETOPT_FAILURE;
@@ -301,6 +305,20 @@ static int request_handler(void* pointer) {
 		}
 		
 		list = tmp;
+	}
+	
+	if (request.method == POST || request.method == PUT) {
+		const struct HTTPHeader* const item = http_headers_get(&request.headers, "Expect");
+		
+		if (item == NULL) {
+			struct curl_slist* const tmp = curl_slist_append(list, "Expect:");
+			
+			if (tmp == NULL) {
+				return KADERR_CURL_SLIST_FAILURE;
+			}
+			
+			list = tmp;
+		}
 	}
 	
 	/*

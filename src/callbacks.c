@@ -91,6 +91,17 @@ size_t read_callback(char *dest, size_t size, size_t nmemb, void *userp) {
 	
 }
 
+size_t read_callback_empty(char *dest, size_t size, size_t nmemb, void *userp) {
+	
+	(void) size;
+	(void) size;
+	(void) nmemb;
+	(void) userp;
+	
+	return 0;
+	
+}
+
 size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 	
 	struct transferdata* const data = (struct transferdata*) userp;
