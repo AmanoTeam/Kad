@@ -72,7 +72,7 @@ void sigint_handler() {
 	
 }
 
-static char target_impersonate[16] = {0};
+static char target_impersonate[64] = {0};
 
 #ifndef KAD_DISABLE_CERTIFICATE_VALIDATION
 	static int load_ssl_certificates(void) {
@@ -485,7 +485,7 @@ int main(int argc, char* argv[]) {
 			const size_t size = strlen(argument->value);
 			
 			if (size > (sizeof(target_impersonate) - 1)) {
-				fprintf(stderr, "fatal error: address string exceeds max buffer size: %s\n", argument->value);
+				fprintf(stderr, "fatal error: target_impersonate string exceeds max buffer size: %s\n", argument->value);
 				return EXIT_FAILURE;
 			}
 			
