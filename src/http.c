@@ -417,9 +417,11 @@ int http_status_parse(struct HTTPObject* const object) {
 	
 	object->ptr = strstr(http_status_end, CRLF); // We don't care about the status message
 	
+	/*
 	if (object->ptr == NULL) {
 		return KADERR_HTTP_MALFORMED_HEADER;
 	}
+	*/
 	
 	return KADERR_SUCCESS;
 	
@@ -601,11 +603,13 @@ int http_object_parse(struct HTTPObject* const object, const char* const buffer,
 		}
 	}
 	
-	// Parse HTTP headers
-	code = http_headers_parse(object);
-	
-	if (code != KADERR_SUCCESS) {
-		return code;
+	if (object->ptr != NULL) {
+		// Parse HTTP headers
+		code = http_headers_parse(object);
+		
+		if (code != KADERR_SUCCESS) {
+			return code;
+		}
 	}
 	
 	return KADERR_SUCCESS;
