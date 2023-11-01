@@ -181,9 +181,19 @@ size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata)
 				continue;
 			}
 			
-			// This header will report an incorrect value for compressed responses, so let's just remove it
+			// This header will report an incorrect value for compressed/chunked responses, so let's just remove it
 			if (strcasecmp(header->key, "Content-Length") == 0) {
-				continue;
+				const struct HTTPHeader* const item = http_headers_get(&response.headers, "Transfer-Encoding");
+				
+				if (item != NULL && strcmp(item->value, "chunked") == 0) {
+					continue;
+				}
+				
+				const struct HTTPHeader* const subitem = http_headers_get(&response.headers, "Content-Encoding");
+				
+				if (subitem != NULL) {
+					continue;
+				}
 			}
 			
 			// Kad doesn't support persistent connections, and the HTTP/1.0 protocol already assumes a short-lived connection by default
