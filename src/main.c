@@ -552,6 +552,10 @@ int main(int argc, char* argv[]) {
 	
 	setsockopt(fd, SOL_SOCKET, SO_LINGER, &lingerv, sizeof(lingerv));
 	
+	const int reuseaddr = 1;
+	
+	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr));
+	
 	struct sockaddr* sockaddress = NULL;
 	size_t addrsize = 0;
 	
