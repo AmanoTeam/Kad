@@ -9,13 +9,13 @@
 	url = https://github.com/madler/zlib
 [submodule "submodules/curl-impersonate"]
 	path = submodules/curl-impersonate
-	url = https://github.com/lwthiker/curl-impersonate
+	url = https://github.com/lexiforest/curl-impersonate
 [submodule "submodules/boringssl"]
 	path = submodules/boringssl
 	url = https://github.com/google/boringssl
 [submodule "submodules/bearssl"]
 	path = submodules/bearssl
-	url = https://www.bearssl.org/git/BearSSL
+	url = https://github.com/AmanoTeam/BearSSL
 [submodule "submodules/brotli"]
 	path = submodules/brotli
 	url = https://github.com/google/brotli

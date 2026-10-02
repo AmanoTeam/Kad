@@ -20,7 +20,7 @@
 #include "kad.h"
 #include "threads.h"
 
-#if !defined(KAD_DISABLE_CERTIFICATE_VALIDATION)
+#if !defined(KAD_DISABLE_SSL_VERIFY)
 	#include "filesystem.h"
 	#include "fstream.h"
 	#include "stringu.h"
@@ -51,7 +51,7 @@ static const char* const IMPERSONATE_HEADERS[] = {
 	"Accept-Language"
 };
 
-#ifndef KAD_DISABLE_CERTIFICATE_VALIDATION
+#ifndef KAD_DISABLE_SSL_VERIFY
 	static const char CA_CERT_FILENAME[] = 
 		PATH_SEPARATOR
 		"etc"
@@ -74,7 +74,7 @@ void sigint_handler() {
 
 static char target_impersonate[64] = {0};
 
-#ifndef KAD_DISABLE_CERTIFICATE_VALIDATION
+#ifndef KAD_DISABLE_SSL_VERIFY
 	static int load_ssl_certificates(void) {
 		
 		char app_filename[PATH_MAX];
@@ -251,7 +251,7 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	#if defined(KAD_DISABLE_CERTIFICATE_VALIDATION)
+	#if defined(KAD_DISABLE_SSL_VERIFY)
 		if (curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L) != CURLE_OK) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
