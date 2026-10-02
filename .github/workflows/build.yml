@@ -97,7 +97,7 @@ jobs:
         for target in "${targets[@]}"; do
             echo "Building for ${target}"
 
-            declare KAD_ENABLE_LTO=ON
+            declare KAD_LTO=ON
             declare OPENSSL_NO_ASM=OFF
             
             if [[ "${target}" == arm-tizen* ]]; then
@@ -105,7 +105,7 @@ jobs:
             fi
             
             cmake -Wno-dev \
-                -DKAD_ENABLE_LTO="${KAD_ENABLE_LTO}" \
+                -DKAD_LTO="${KAD_LTO}" \
                 -DCMAKE_TOOLCHAIN_FILE="./.github/workflows/cmake_toolchains/${target}.cmake" \
                 -DCMAKE_INSTALL_PREFIX="${target}" \
                 -DPERL_EXECUTABLE='/usr/bin/perl' \
