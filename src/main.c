@@ -523,7 +523,6 @@ static int request_handler(void* pointer) {
 		}
 		
 		if (matches) {
-			loggln(LOG_WARN, "[warn] ignoring client header '%s' to avoid conflicts with curl-impersonate", header->key);
 			continue;
 		}
 		
