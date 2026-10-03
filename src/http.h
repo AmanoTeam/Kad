@@ -106,7 +106,7 @@ typedef struct HTTPHeader http_header_t;
 
 struct HTTPHeaders {
 	size_t offset;
-	size_t size;
+	size_t capacity;
 	struct HTTPHeader* items;
 	size_t slength;
 };
@@ -163,7 +163,7 @@ const char* http_method_stringify(const http_method_t method);
 const char* http_version_stringify(const http_version_t version);
 const char* http_status_stringify(const http_status_code_t status_code);
 
-int http_headers_add(http_headers_t* const headers, const char* key, const char* value);
+int http_headers_add(http_headers_t* const headers, const char* key, const size_t key_size, const char* value, const size_t value_size);
 const http_header_t* http_headers_get(const http_headers_t* const headers, const char* key);
 
 int http_request_parse(http_request_t* const request, const char* const buffer, const size_t size);
