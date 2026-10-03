@@ -18,6 +18,8 @@ set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
@@ -161,6 +163,14 @@ string(REPLACE "(UNIX)" "(1)" FILE_CONTENTS "${FILE_CONTENTS}")
 string(REPLACE "(NOT APPLE)" "(0)" FILE_CONTENTS "${FILE_CONTENTS}")
 file(WRITE "${ZLIB_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
 
+file(READ "${NGTCP2_SOURCE_DIRECTORY}/CMakeLists.txt" FILE_CONTENTS)
+string(REPLACE "(check" "(check_v1" FILE_CONTENTS "${FILE_CONTENTS}")
+file(WRITE "${NGTCP2_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
+
+file(READ "${NGHTTP3_SOURCE_DIRECTORY}/CMakeLists.txt" FILE_CONTENTS)
+string(REPLACE "(check" "(check_v2" FILE_CONTENTS "${FILE_CONTENTS}")
+file(WRITE "${NGHTTP3_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
+
 if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.patched")
 	message("-- Patching cURL")
 
@@ -199,20 +209,7 @@ if (NOT EXISTS "${NGTCP2_SOURCE_DIRECTORY}/.patched")
 		--input=${CURL_IMPERSONATE_SOURCE_DIRECTORY}/patches/ngtcp2.patch
 		COMMAND_ERROR_IS_FATAL ANY
 	)
-
-	file(READ "${NGTCP2_SOURCE_DIRECTORY}/CMakeLists.txt" FILE_CONTENTS)
-
-	string(REPLACE
-		[=[add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})]=]
-		[=[if(NOT TARGET check)
-  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
-endif()]=]
-		FILE_CONTENTS
-		"${FILE_CONTENTS}"
-	)
-
-	file(WRITE "${NGTCP2_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
-
+	
 	file(WRITE "${NGTCP2_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
@@ -226,31 +223,8 @@ if (NOT EXISTS "${NGHTTP3_SOURCE_DIRECTORY}/.patched")
 		--input=${CURL_IMPERSONATE_SOURCE_DIRECTORY}/patches/nghttp3.patch
 		COMMAND_ERROR_IS_FATAL ANY
 	)
-
-	file(READ "${NGHTTP3_SOURCE_DIRECTORY}/CMakeLists.txt" FILE_CONTENTS)
-
-	string(REPLACE
-		[=[add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})]=]
-		[=[if(NOT TARGET check)
-  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
-endif()]=]
-		FILE_CONTENTS
-		"${FILE_CONTENTS}"
-	)
-
-	file(WRITE "${NGHTTP3_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
-
+	
 	file(WRITE "${NGHTTP3_SOURCE_DIRECTORY}/.patched" "")
-endif()
-
-if (NOT APPLE)
-	if (CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
-		add_link_options(-s)
-	endif()
-endif()
-
-if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
-	add_compile_options(-Oz)
 endif()
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
@@ -330,12 +304,6 @@ file(WRITE "${NGTCP2_LIBRARY}" "")
 file(WRITE "${NGTCP2_CRYPTO_BORINGSSL_LIBRARY}" "")
 file(WRITE "${NGHTTP3_LIBRARY}" "")
 
-set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY)
-
-if (ANDROID)
-	set(ANDROID_STL "c++_static")
-endif()
-
 file(MAKE_DIRECTORY
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/zlib"
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp2/lib/includes"
@@ -367,8 +335,6 @@ add_subdirectory(
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp2"
 	EXCLUDE_FROM_ALL
 )
-
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 add_subdirectory(
 	"${NGTCP2_SOURCE_DIRECTORY}"
@@ -431,7 +397,6 @@ if (NOT KAD_SSL_VERIFY)
 	)
 endif()
 
-# Enable Unicode on Windows builds
 if (WIN32 AND KAD_UNICODE)
 	target_sources(
 		kad
@@ -490,8 +455,11 @@ set_target_properties(
 	INSTALL_RPATH "${LIB_RPATH}"
 )
 
+find_package(Threads REQUIRED)
+
 target_link_libraries(
 	kad
+	Threads::Threads
 	ssl
 	crypto
 	libcurl_shared
@@ -508,39 +476,3 @@ install(
 	DESTINATION etc/tls
 	RENAME cert.pem
 )
-
-target_link_options(
-	kad
-	BEFORE
-	PRIVATE
-	-pthread
-)
-
-if ("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "i386")
-	target_link_options(
-		ssl
-		BEFORE
-		PRIVATE
-		-latomic
-	)
-endif()
-
-if (NOT ANDROID)
-	foreach(target ssl nghttp2)
-		target_link_options(
-			${target}
-			BEFORE
-			PRIVATE
-			-static-libgcc -static-libstdc++
-		)
-	endforeach()
-endif()
-
-if (CMAKE_CROSSCOMPILING)
-	target_link_options(
-		kad
-		BEFORE
-		PRIVATE
-		-Wl,-rpath-link -Wl,${CMAKE_CURRENT_BINARY_DIR}
-	)
-endif()
