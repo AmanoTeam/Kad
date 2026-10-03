@@ -7,6 +7,8 @@
 #include "cleanup.h"
 #include "http.h"
 #include "ssl.h"
+#include "transferdata.h"
+#include "buffer.h"
 
 void __curl_slist_free_all(struct curl_slist** ptr) {
 	curl_slist_free_all(*ptr);
@@ -30,4 +32,29 @@ void __ssl_close(ssl_context_t* ptr) {
 
 void __curl_easy_cleanup(CURL** ptr) {
 	curl_easy_cleanup(*ptr);
+}
+
+void transferdata_close(transferdata_t* const data) {
+	
+	if (data == NULL) {
+		return;
+	}
+	
+	curl_slist_free_all(data->headers);
+	
+	ssl_close(&data->context);
+	
+	if (data->fd > 0) {
+		close(data->fd);
+	}
+	
+	http_request_free(&data->request);
+	buffer_free(&data->buffer);
+	
+	free(data);
+	
+}
+
+void __transferdata_close(transferdata_t** ptr) {
+	transferdata_close(*ptr);
 }

@@ -196,6 +196,12 @@ static void* event_loop(void* pointer) {
 			
 			if (add_code != CURLM_OK) {
 				loggln(LOG_ERROR, "[error] could not add handle to multi stack: %s", curl_multi_strerror(add_code));
+				
+				transferdata_t* data = NULL;
+				curl_easy_getinfo(item->handle, CURLINFO_PRIVATE, &data);
+				
+				curl_easy_cleanup(item->handle);
+				transferdata_close(data);
 			}
 		}
 		
@@ -231,13 +237,7 @@ static void* event_loop(void* pointer) {
 			}
 			
 			curl_easy_cleanup(msg->easy_handle);
-			
-			curl_slist_free_all(data->headers);
-			ssl_close(&data->context);
-			close(data->fd);
-			http_request_free(&data->request);
-			buffer_free(&data->buffer);
-			free(data);
+			transferdata_close(data);
 		}
 		
 		code = curl_multi_poll(curl_multi, NULL, 0, 1000, NULL);
@@ -260,10 +260,17 @@ static int request_handler(void* pointer) {
 	int fd = *(int*) pointer;
 	free(pointer);
 
-	transferdata_t* data = NULL;
+	transferdata_t* data __transferdata_close__ = NULL;
 	
 	data = malloc(sizeof(*data));
+	
+	if (data == NULL) {
+		close(fd);
+		return KADERR_MEMORY_ALLOCATE_FAILURE;
+	}
+	
 	memset(data, 0, sizeof(*data));
+	data->fd = fd;
 	
 	const http_header_t* header = NULL;
 	
@@ -284,7 +291,6 @@ static int request_handler(void* pointer) {
 	
 	const int is_secure = (data->request.method == CONNECT);
 	
-	data->fd = fd;
 	data->is_secure = is_secure;
 
 	if (is_secure) {
@@ -334,7 +340,7 @@ static int request_handler(void* pointer) {
 	
 	curl_global_init(CURL_GLOBAL_ALL);
 	
-	CURL* curl = curl_easy_init();
+	CURL* curl __curl_easy_cleanup__ = curl_easy_init();
 	
 	if (curl == NULL) {
 		return KADERR_CURL_INIT_FAILURE;
@@ -373,8 +379,6 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	struct curl_slist* list = NULL;
-	
 	for (size_t index = 0; index < data->request.headers.offset; index++) {
 		header = &data->request.headers.items[index];
 		
@@ -400,26 +404,26 @@ static int request_handler(void* pointer) {
 		strcat(item, HEADER_SEPARATOR);
 		strcat(item, header->value);
 		
-		struct curl_slist* const tmp = curl_slist_append(list, item);
+		struct curl_slist* const tmp = curl_slist_append(data->headers, item);
 		
 		if (tmp == NULL) {
 			return KADERR_CURL_SLIST_FAILURE;
 		}
 		
-		list = tmp;
+		data->headers = tmp;
 	}
 	
 	if (data->request.method == POST || data->request.method == PUT) {
 		header = http_headers_get(&data->request.headers, "Expect");
 		
 		if (header == NULL) {
-			struct curl_slist* const tmp = curl_slist_append(list, "Expect:");
+			struct curl_slist* const tmp = curl_slist_append(data->headers, "Expect:");
 			
 			if (tmp == NULL) {
 				return KADERR_CURL_SLIST_FAILURE;
 			}
 			
-			list = tmp;
+			data->headers = tmp;
 		}
 	}
 	
@@ -433,11 +437,9 @@ static int request_handler(void* pointer) {
 	}
 	*/
 	
-	if (curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list) != CURLE_OK) {
+	if (curl_easy_setopt(curl, CURLOPT_HTTPHEADER, data->headers) != CURLE_OK) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
-	
-	data->headers = list;
 	
 	if (curl_easy_setopt(curl, CURLOPT_URL, data->request.uri) != CURLE_OK) {
 		return KADERR_CURL_SETOPT_FAILURE;
@@ -534,6 +536,9 @@ static int request_handler(void* pointer) {
 	pthread_mutex_unlock(&curl_pending_mutex);
 	
 	curl_multi_wakeup(curl_multi);
+	
+	curl = NULL;
+	data = NULL;
 	
 	return KADERR_SUCCESS;
 	
