@@ -168,10 +168,16 @@ static int request_handler(void* pointer) {
 	
 	int fd = *(int*) pointer;
 	
-	ssl_context_t context __ssl_close__ = {0};
+	ssl_context_t context = {0};
 	
-	http_request_t request __http_request_free__ = {0};
+	http_request_t request = {0};
 	http_request_init(&request);
+	
+	transferdata_t* data = NULL;
+	
+	data = malloc(sizeof(*data));
+	
+	const http_header_t* header = NULL;
 	
 	char buffer[MAX_HTTP_HEADERS_SIZE];
 	const ssize_t recv_size = recv(fd, buffer, MAX_HTTP_HEADERS_SIZE, 0);
@@ -188,12 +194,10 @@ static int request_handler(void* pointer) {
 	
 	const int is_secure = (request.method == CONNECT);
 	
-	transferdata_t data = {
-		.context = &context,
-		.request = &request,
-		.fd = fd,
-		.is_secure = is_secure
-	};
+	data->context = &context;
+	data->request = &request;
+	data->fd = fd;
+	data->is_secure = is_secure;
 	
 	if (is_secure) {
 		ssize_t size = send(fd, "HTTP/1.0 200 OK\r\n\r\n", 19, 0);
@@ -284,7 +288,7 @@ static int request_handler(void* pointer) {
 	struct curl_slist* list __curl_slist_free_all__ = NULL;
 	
 	for (size_t index = 0; index < request.headers.offset; index++) {
-		const http_header_t* const header = &request.headers.items[index];
+		header = &request.headers.items[index];
 		
 		int matches = 0;
 		
@@ -318,9 +322,9 @@ static int request_handler(void* pointer) {
 	}
 	
 	if (request.method == POST || request.method == PUT) {
-		const http_header_t* const item = http_headers_get(&request.headers, "Expect");
+		header = http_headers_get(&request.headers, "Expect");
 		
-		if (item == NULL) {
+		if (header == NULL) {
 			struct curl_slist* const tmp = curl_slist_append(list, "Expect:");
 			
 			if (tmp == NULL) {
@@ -359,17 +363,17 @@ static int request_handler(void* pointer) {
 		}
 	}
 	
-	const http_header_t* const transfer_encoding = http_headers_get(&request.headers, "Transfer-Encoding");
+	header = http_headers_get(&request.headers, "Transfer-Encoding");
 	
-	const int use_chunked = (transfer_encoding != NULL && strcmp(transfer_encoding->value, "chunked") == 0);
+	const int use_chunked = (header != NULL && strcmp(header->value, "chunked") == 0);
 	
 	size_t content_length = 0;
 	
 	if (!use_chunked) {
-		const http_header_t* const content_length_header = http_headers_get(&request.headers, "Content-Length");
+		header = http_headers_get(&request.headers, "Content-Length");
 		
-		if (content_length_header != NULL) {
-			content_length = strtoull(content_length_header->value, NULL, 10);
+		if (header != NULL) {
+			content_length = strtoull(header->value, NULL, 10);
 		}
 	}
 	
@@ -433,9 +437,9 @@ static int request_handler(void* pointer) {
 		
 		return KADERR_CURL_PERFORM_FAILURE;
 	}
-	
-	return KADERR_SUCCESS;
 	*/
+	return KADERR_SUCCESS;
+	
 	
 }
 
