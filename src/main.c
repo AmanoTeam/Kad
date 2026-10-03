@@ -171,9 +171,6 @@ static int request_handler(void* pointer) {
 	http_request_t request __http_request_free__ = {0};
 	http_request_init(&request);
 	
-	http_response_t response __http_response_free__ = {0};
-	http_response_init(&response);
-	
 	char buffer[MAX_HTTP_HEADERS_SIZE];
 	const ssize_t recv_size = recv(fd, buffer, MAX_HTTP_HEADERS_SIZE, 0);
 	
@@ -192,7 +189,6 @@ static int request_handler(void* pointer) {
 	transferdata_t data = {
 		.context = &context,
 		.request = &request,
-		.response = &response,
 		.fd = fd,
 		.is_secure = is_secure
 	};

@@ -8,7 +8,6 @@
 struct transferdata {
 	ssl_context_t* context;
 	http_request_t* request;
-	http_response_t* response;
 	int fd;
 	int is_secure;
 	size_t remaining;
