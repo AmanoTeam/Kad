@@ -13,6 +13,7 @@ option(KAD_UNICODE "Enable Unicode support for Windows builds" ON)
 option(KAD_SSL_VERIFY "Enable SSL certificate verification in libcurl" ON)
 option(KAD_ASAN "Build with AddressSanitizer" OFF)
 option(KAD_PROFILE "Build with gprof instrumentation (-pg)" OFF)
+option(KAD_BUILD_SHARED "Build the project as a shared library" OFF)
 
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
@@ -381,10 +382,24 @@ endforeach()
 
 include_directories(${INCLUDE_DIRECTORIES})
 
-add_executable(
-	kad
-	${KAD_SOURCE_FILES}
-)
+if (KAD_BUILD_SHARED)
+	add_library(
+		kad
+		SHARED
+		${KAD_SOURCE_FILES}
+	)
+	
+	target_compile_definitions(
+		kad
+		PRIVATE
+		KAD_BUILD_SHARED
+	)
+else()
+	add_executable(
+		kad
+		${KAD_SOURCE_FILES}
+	)
+endif()
 
 if (NOT KAD_SSL_VERIFY)
 	target_compile_definitions(
@@ -459,8 +474,15 @@ if (KAD_PROFILE)
 		kad
 		PRIVATE
 		-pg
-		-no-pie
 	)
+	
+	if (NOT KAD_BUILD_SHARED)
+		target_link_options(
+			kad
+			PRIVATE
+			-no-pie
+		)
+	endif()
 endif()
 
 target_compile_definitions(
