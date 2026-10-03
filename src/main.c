@@ -178,7 +178,14 @@ static void* event_loop(void* pointer) {
 	
 	(void) pointer;
 	
+	int left = 0;
+	CURLMsg* msg = NULL;
+	
 	CURLMcode code = CURLM_OK;
+	CURLcode easy_code = 0;
+	
+	curl_pending_t* item = NULL;
+	transferdata_t* data = NULL;
 	
 	int running = 0;
 	
@@ -188,17 +195,22 @@ static void* event_loop(void* pointer) {
 		pthread_mutex_lock(&curl_pending_mutex);
 		
 		while (curl_pending != NULL) {
-			curl_pending_t* const item = curl_pending;
+			item = curl_pending;
 			curl_pending = item->next;
 			
-			const CURLMcode add_code = curl_multi_add_handle(curl_multi, item->handle);
+			code = curl_multi_add_handle(curl_multi, item->handle);
+			
 			free(item);
 			
-			if (add_code != CURLM_OK) {
-				loggln(LOG_ERROR, "[error] could not add handle to multi stack: %s", curl_multi_strerror(add_code));
+			if (code != CURLM_OK) {
+				loggln(LOG_ERROR, "[error] could not add handle to multi stack: %s", curl_multi_strerror(code));
 				
-				transferdata_t* data = NULL;
-				curl_easy_getinfo(item->handle, CURLINFO_PRIVATE, &data);
+				easy_code = curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
+				
+				if (easy_code != CURLE_OK) {
+					err = APTERR_WCURL_GETINFO_FAILURE;
+					goto end;
+				}
 				
 				curl_easy_cleanup(item->handle);
 				transferdata_close(data);
@@ -214,9 +226,6 @@ static void* event_loop(void* pointer) {
 			goto end;
 		}
 		
-		int left = 0;
-		CURLMsg* msg = NULL;
-		
 		while ((msg = curl_multi_info_read(curl_multi, &left)) != NULL) {
 			if (msg->msg != CURLMSG_DONE) {
 				continue;
@@ -226,8 +235,12 @@ static void* event_loop(void* pointer) {
 				loggln(LOG_ERROR, "[error] curl: %s", curl_easy_strerror(msg->data.result));
 			}
 			
-			transferdata_t* data = NULL;
-			curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
+			easy_code = curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
+			
+			if (easy_code != CURLE_OK) {
+				err = APTERR_WCURL_GETINFO_FAILURE;
+				goto end;
+			}
 			
 			code = curl_multi_remove_handle(curl_multi, msg->easy_handle);
 			
@@ -257,6 +270,8 @@ static void* event_loop(void* pointer) {
 
 static int request_handler(void* pointer) {
 	
+	int err = 0;
+	
 	int fd = *(int*) pointer;
 	free(pointer);
 
@@ -283,10 +298,10 @@ static int request_handler(void* pointer) {
 	
 	http_request_init(&data->request);
 	
-	int rc = http_request_parse(&data->request, buffer, (size_t) recv_size);
+	err = http_request_parse(&data->request, buffer, (size_t) recv_size);
 	
-	if (rc != KADERR_SUCCESS) {
-		return rc;
+	if (err != KADERR_SUCCESS) {
+		return err;
 	}
 	
 	const int is_secure = (data->request.method == CONNECT);
@@ -315,10 +330,10 @@ static int request_handler(void* pointer) {
 		
 		http_request_free(&data->request);
 		
-		const int code = http_request_parse(&data->request, buffer, (size_t) size);
+		err = http_request_parse(&data->request, buffer, (size_t) size);
 		
-		if (code != KADERR_SUCCESS) {
-			return code;
+		if (err != KADERR_SUCCESS) {
+			return err;
 		}
 		
 		char* uri = malloc(strlen(HTTPS_SCHEME) + strlen(SCHEME_SEPARATOR) + strlen(hostname) + strlen(data->request.uri) + 1);
@@ -426,16 +441,6 @@ static int request_handler(void* pointer) {
 			data->headers = tmp;
 		}
 	}
-	
-	/*
-	if (curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, 0L) != CURLE_OK) {
-		return KADERR_CURL_SETOPT_FAILURE;
-	}
-	
-	if (curl_easy_setopt(curl, CURLOPT_HTTP_TRANSFER_DECODING, 0L) != CURLE_OK) {
-		return KADERR_CURL_SETOPT_FAILURE;
-	}
-	*/
 	
 	if (curl_easy_setopt(curl, CURLOPT_HTTPHEADER, data->headers) != CURLE_OK) {
 		return KADERR_CURL_SETOPT_FAILURE;

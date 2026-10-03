@@ -44,6 +44,8 @@
 #define KADERR_SSL_RECV_FAILURE -30 /* Cannot receive data on SSL socket */
 #define KADERR_SSL_SEND_FAILURE -31 /* Cannot send data on SSL socket */
 
+#define APTERR_WCURL_GETINFO_FAILURE -5576 /* Could not get info about HTTP transfer */
+
 const char* strkaderr(const int code);
 
 #endif
