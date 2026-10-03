@@ -6,8 +6,8 @@
 #include "buffer.h"
 
 struct transferdata {
-	ssl_context_t* context;
-	http_request_t* request;
+	ssl_context_t context;
+	http_request_t request;
 	int fd;
 	int is_secure;
 	size_t remaining;

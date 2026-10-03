@@ -168,14 +168,10 @@ static int request_handler(void* pointer) {
 	
 	int fd = *(int*) pointer;
 	
-	ssl_context_t context = {0};
-	
-	http_request_t request = {0};
-	http_request_init(&request);
-	
 	transferdata_t* data = NULL;
 	
 	data = malloc(sizeof(*data));
+	memset(data, 0, sizeof(*data));
 	
 	const http_header_t* header = NULL;
 	
@@ -194,10 +190,10 @@ static int request_handler(void* pointer) {
 	
 	const int is_secure = (request.method == CONNECT);
 	
-	data->context = &context;
-	data->request = &request;
 	data->fd = fd;
 	data->is_secure = is_secure;
+	
+	http_request_init(&data->request);
 	
 	if (is_secure) {
 		ssize_t size = send(fd, "HTTP/1.0 200 OK\r\n\r\n", 19, 0);

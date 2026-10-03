@@ -55,7 +55,7 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 			wanted = data->remaining;
 		}
 		
-		const ssize_t rsize = (data->is_secure) ? ssl_recv(data->context, chunk, wanted) : recv(data->fd, chunk, wanted, 0);
+		const ssize_t rsize = (data->is_secure) ? ssl_recv(context, chunk, wanted) : recv(data->fd, chunk, wanted, 0);
 		
 		if (rsize <= 0) {
 			return CURL_READFUNC_ABORT;
@@ -84,9 +84,10 @@ size_t read_callback_empty(char* dest, size_t size, size_t nmemb, void* userp) {
 size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 	
 	transferdata_t* const data = (transferdata_t*) userp;
+	ssl_context_t* context = &context;
 	const size_t chunk_size = size * nmemb;
 	
-	const ssize_t wsize = (data->is_secure) ? ssl_send(data->context, ptr, chunk_size) : send(data->fd, ptr, chunk_size, 0);
+	const ssize_t wsize = (data->is_secure) ? ssl_send(context, ptr, chunk_size) : send(data->fd, ptr, chunk_size, 0);
 	
 	if (wsize == -1) {
 		return CURL_WRITEFUNC_ERROR;
@@ -99,6 +100,7 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
 	
 	transferdata_t* const data = (transferdata_t*) userdata;
+	ssl_context_t* context = &context;
 	const size_t chunk_size = nitems * size;
 	
 	const size_t slength = data->buffer.slength + chunk_size;
@@ -142,7 +144,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		strcat(line, message);
 		strcat(line, CRLF);
 		
-		ssize_t wsize = (data->is_secure) ? ssl_send(data->context, line, line_size) : send(data->fd, line, line_size, 0);
+		ssize_t wsize = (data->is_secure) ? ssl_send(context, line, line_size) : send(data->fd, line, line_size, 0);
 		
 		if (wsize == -1) {
 			return CURL_WRITEFUNC_ERROR;
@@ -205,14 +207,14 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			strcat(line, header->value);
 			strcat(line, CRLF);
 			
-			const ssize_t wsize = (data->is_secure) ? ssl_send(data->context, line, strlen(line)) : send(data->fd, line, strlen(line), 0);
+			const ssize_t wsize = (data->is_secure) ? ssl_send(context, line, strlen(line)) : send(data->fd, line, strlen(line), 0);
 			
 			if (wsize == -1) {
 				return CURL_WRITEFUNC_ERROR;
 			}
 		}
 		
-		wsize = (data->is_secure) ? ssl_send(data->context, CRLF, strlen(CRLF)) : send(data->fd, CRLF, strlen(CRLF), 0);
+		wsize = (data->is_secure) ? ssl_send(context, CRLF, strlen(CRLF)) : send(data->fd, CRLF, strlen(CRLF), 0);
 		
 		if (wsize == -1) {
 			return CURL_WRITEFUNC_ERROR;
