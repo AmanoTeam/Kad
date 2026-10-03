@@ -11,6 +11,7 @@ project(
 option(KAD_LTO "Turn on compiler link-time optimizations" OFF)
 option(KAD_UNICODE "Enable Unicode support for Windows builds" ON)
 option(KAD_SSL_VERIFY "Enable SSL certificate verification in libcurl" ON)
+option(KAD_ASAN "Build with AddressSanitizer" OFF)
 
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
@@ -426,6 +427,22 @@ if (KAD_LTO)
 			INTERPROCEDURAL_OPTIMIZATION TRUE
 		)
 	endif()
+endif()
+
+if (KAD_ASAN)
+	target_compile_options(
+		kad
+		PRIVATE
+		-fsanitize=address
+		-fno-omit-frame-pointer
+		-g
+	)
+	
+	target_link_options(
+		kad
+		PRIVATE
+		-fsanitize=address
+	)
 endif()
 
 target_compile_definitions(

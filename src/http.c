@@ -8,27 +8,35 @@
 #include "errors.h"
 #include "constants.h"
 
-static const size_t MAX_HTTP_HEADERS_COUNT = 128;
+#define MAX_HTTP_HEADERS_COUNT (128)
 
 const char* http_method_stringify(const http_method_t method) {
 	
 	switch (method) {
-		case GET:
+		case GET: {
 			return "GET";
-		case HEAD:
+		}
+		case HEAD: {
 			return "HEAD";
-		case POST:
+		}
+		case POST: {
 			return "POST";
-		case PUT:
+		}
+		case PUT: {
 			return "PUT";
-		case DELETE:
+		}
+		case DELETE: {
 			return "DELETE";
-		case CONNECT:
+		}
+		case CONNECT: {
 			return "CONNECT";
-		case OPTIONS:
+		}
+		case OPTIONS: {
 			return "OPTIONS";
-		case TRACE:
+		}
+		case TRACE: {
 			return "TRACE";
+		}
 	}
 	
 	return NULL;
@@ -38,12 +46,15 @@ const char* http_method_stringify(const http_method_t method) {
 const char* http_version_stringify(const http_version_t version) {
 	
 	switch (version) {
-		case HTTP10:
+		case HTTP10: {
 			return "1.0";
-		case HTTP11:
+		}
+		case HTTP11: {
 			return "1.1";
-		case HTTP2:
+		}
+		case HTTP2: {
 			return "2";
+		}
 	}
 	
 	return NULL;
@@ -53,130 +64,192 @@ const char* http_version_stringify(const http_version_t version) {
 const char* http_status_stringify(const http_status_code_t status_code) {
 	
 	switch (status_code) {
-		case CONTINUE:
+		case CONTINUE: {
 			return "Continue";
-		case SWITCHING_PROTOCOLS:
+		}
+		case SWITCHING_PROTOCOLS: {
 			return "Switching Protocols";
-		case PROCESSING:
+		}
+		case PROCESSING: {
 			return "Processing";
-		case EARLY_HINTS:
+		}
+		case EARLY_HINTS: {
 			return "Early Hints";
-		case OK:
+		}
+		case OK: {
 			return "OK";
-		case CREATED:
+		}
+		case CREATED: {
 			return "Created";
-		case ACCEPTED:
+		}
+		case ACCEPTED: {
 			return "Accepted";
-		case NON_AUTHORITATIVE_INFORMATION:
+		}
+		case NON_AUTHORITATIVE_INFORMATION: {
 			return "Non-Authoritative Information";
-		case NO_CONTENT:
+		}
+		case NO_CONTENT: {
 			return "No Content";
-		case RESET_CONTENT:
+		}
+		case RESET_CONTENT: {
 			return "Reset Content";
-		case PARTIAL_CONTENT:
+		}
+		case PARTIAL_CONTENT: {
 			return "Partial Content";
-		case MULTI_STATUS:
+		}
+		case MULTI_STATUS: {
 			return "Multi-Status";
-		case ALREADY_REPORTED:
+		}
+		case ALREADY_REPORTED: {
 			return "Already Reported";
-		case IM_USED:
+		}
+		case IM_USED: {
 			return "IM Used";
-		case MULTIPLE_CHOICES:
+		}
+		case MULTIPLE_CHOICES: {
 			return "Multiple Choices";
-		case MOVED_PERMANENTLY:
+		}
+		case MOVED_PERMANENTLY: {
 			return "Moved Permanently";
-		case FOUND:
+		}
+		case FOUND: {
 			return "Found";
-		case SEE_OTHER:
+		}
+		case SEE_OTHER: {
 			return "See Other";
-		case NOT_MODIFIED:
+		}
+		case NOT_MODIFIED: {
 			return "Not Modified";
-		case USE_PROXY:
+		}
+		case USE_PROXY: {
 			return "Use Proxy";
-		case TEMPORARY_REDIRECT:
+		}
+		case TEMPORARY_REDIRECT: {
 			return "Temporary Redirect";
-		case PERMANENT_REDIRECT:
+		}
+		case PERMANENT_REDIRECT: {
 			return "Permanent Redirect";
-		case BAD_REQUEST:
+		}
+		case BAD_REQUEST: {
 			return "Bad Request";
-		case UNAUTHORIZED:
+		}
+		case UNAUTHORIZED: {
 			return "Unauthorized";
-		case PAYMENT_REQUIRED:
+		}
+		case PAYMENT_REQUIRED: {
 			return "Payment Required";
-		case FORBIDDEN:
+		}
+		case FORBIDDEN: {
 			return "Forbidden";
-		case NOT_FOUND:
+		}
+		case NOT_FOUND: {
 			return "Not Found";
-		case METHOD_NOT_ALLOWED:
+		}
+		case METHOD_NOT_ALLOWED: {
 			return "Method Not Allowed";
-		case NOT_ACCEPTABLE:
+		}
+		case NOT_ACCEPTABLE: {
 			return "Not Acceptable";
-		case PROXY_AUTHENTICATION_REQUIRED:
+		}
+		case PROXY_AUTHENTICATION_REQUIRED: {
 			return "Proxy Authentication Required";
-		case REQUEST_TIMEOUT:
+		}
+		case REQUEST_TIMEOUT: {
 			return "Request Timeout";
-		case CONFLICT:
+		}
+		case CONFLICT: {
 			return "Conflict";
-		case GONE:
+		}
+		case GONE: {
 			return "Gone";
-		case LENGTH_REQUIRED:
+		}
+		case LENGTH_REQUIRED: {
 			return "Length Required";
-		case PRECONDITION_FAILED:
+		}
+		case PRECONDITION_FAILED: {
 			return "Precondition Failed";
-		case REQUEST_ENTITY_TOO_LARGE:
+		}
+		case REQUEST_ENTITY_TOO_LARGE: {
 			return "Request Entity Too Large";
-		case REQUEST_URI_TOO_LONG:
+		}
+		case REQUEST_URI_TOO_LONG: {
 			return "Request-URI Too Long";
-		case UNSUPPORTED_MEDIA_TYPE:
+		}
+		case UNSUPPORTED_MEDIA_TYPE: {
 			return "Unsupported Media Type";
-		case REQUESTED_RANGE_NOT_SATISFIABLE:
+		}
+		case REQUESTED_RANGE_NOT_SATISFIABLE: {
 			return "Requested Range Not Satisfiable";
-		case EXPECTATION_FAILED:
+		}
+		case EXPECTATION_FAILED: {
 			return "Expectation Failed";
-		case IM_A_TEAPOT:
+		}
+		case IM_A_TEAPOT: {
 			return "I'm a Teapot";
-		case MISDIRECTED_REQUEST:
+		}
+		case MISDIRECTED_REQUEST: {
 			return "Misdirected Request";
-		case UNPROCESSABLE_ENTITY:
+		}
+		case UNPROCESSABLE_ENTITY: {
 			return "Unprocessable Entity";
-		case LOCKED:
+		}
+		case LOCKED: {
 			return "Locked";
-		case FAILED_DEPENDENCY:
+		}
+		case FAILED_DEPENDENCY: {
 			return "Failed Dependency";
-		case TOO_EARLY:
+		}
+		case TOO_EARLY: {
 			return "Too Early";
-		case UPGRADE_REQUIRED:
+		}
+		case UPGRADE_REQUIRED: {
 			return "Upgrade Required";
-		case PRECONDITION_REQUIRED:
+		}
+		case PRECONDITION_REQUIRED: {
 			return "Precondition Required";
-		case TOO_MANY_REQUESTS:
+		}
+		case TOO_MANY_REQUESTS: {
 			return "Too Many Requests";
-		case REQUEST_HEADER_FIELDS_TOO_LARGE:
+		}
+		case REQUEST_HEADER_FIELDS_TOO_LARGE: {
 			return "Request Header Fields Too Large";
-		case UNAVAILABLE_FOR_LEGAL_REASONS:
+		}
+		case UNAVAILABLE_FOR_LEGAL_REASONS: {
 			return "Unavailable For Legal Reasons";
-		case INTERNAL_SERVER_ERROR:
+		}
+		case INTERNAL_SERVER_ERROR: {
 			return "Internal Server Error";
-		case NOT_IMPLEMENTED:
+		}
+		case NOT_IMPLEMENTED: {
 			return "Not Implemented";
-		case BAD_GATEWAY:
+		}
+		case BAD_GATEWAY: {
 			return "Bad Gateway";
-		case SERVICE_UNAVAILABLE:
+		}
+		case SERVICE_UNAVAILABLE: {
 			return "Service Unavailable";
-		case GATEWAY_TIMEOUT:
+		}
+		case GATEWAY_TIMEOUT: {
 			return "Gateway Timeout";
-		case HTTP_VERSION_NOT_SUPPORTED:
+		}
+		case HTTP_VERSION_NOT_SUPPORTED: {
 			return "HTTP Version Not Supported";
-		case VARIANT_ALSO_NEGOTIATES:
+		}
+		case VARIANT_ALSO_NEGOTIATES: {
 			return "Variant Also Negotiates";
-		case INSUFFICIENT_STORAGE:
+		}
+		case INSUFFICIENT_STORAGE: {
 			return "Insufficient Storage";
-		case LOOP_DETECTED:
+		}
+		case LOOP_DETECTED: {
 			return "Loop Detected";
-		case NOT_EXTENDED:
+		}
+		case NOT_EXTENDED: {
 			return "Not Extended";
-		case NETWORK_AUTHENTICATION_REQUIRED:
+		}
+		case NETWORK_AUTHENTICATION_REQUIRED: {
 			return "Network Authentication Required";
+		}
 	}
 	
 	return NULL;
@@ -185,29 +258,30 @@ const char* http_status_stringify(const http_status_code_t status_code) {
 
 int http_headers_add(http_headers_t* const headers, const char* key, const char* value) {
 	
-	http_header_t header = {
-		.key = malloc(strlen(key) + 1),
-		.value = malloc(strlen(value) + 1)
-	};
+	int status = 0;
+	
+	http_header_t header = {NULL, NULL};
+	
+	size_t size = 0;
+	http_header_t* items = NULL;
+	
+	header.key = malloc(strlen(key) + 1);
+	header.value = malloc(strlen(value) + 1);
 	
 	if (header.key == NULL || header.value == NULL) {
-		free(header.key);
-		free(header.value);
-		
-		return KADERR_MEMORY_ALLOCATE_FAILURE;
+		status = KADERR_MEMORY_ALLOCATE_FAILURE;
+		goto end;
 	}
 	
 	strcpy(header.key, key);
 	strcpy(header.value, value);
 	
-	const size_t size = headers->size + sizeof(http_header_t) * 1;
-	http_header_t* items = (http_header_t*) realloc(headers->items, size);
+	size = headers->size + sizeof(http_header_t) * 1;
+	items = (http_header_t*) realloc(headers->items, size);
 	
 	if (items == NULL) {
-		free(header.key);
-		free(header.value);
-		
-		return KADERR_MEMORY_ALLOCATE_FAILURE;
+		status = KADERR_MEMORY_ALLOCATE_FAILURE;
+		goto end;
 	}
 	
 	headers->size = size;
@@ -228,14 +302,25 @@ int http_headers_add(http_headers_t* const headers, const char* key, const char*
 		headers->slength += strlen(value);
 	}
 	
-	return KADERR_SUCCESS;
+	end:;
+	
+	if (status != KADERR_SUCCESS) {
+		free(header.key);
+		free(header.value);
+	}
+	
+	return status;
 	
 }
 
 const http_header_t* http_headers_get(const http_headers_t* const headers, const char* key) {
 	
-	for (size_t index = 0; index < headers->offset; index++) {
-		const http_header_t* header = &headers->items[index];
+	size_t index = 0;
+	
+	const http_header_t* header = NULL;
+	
+	for (index = 0; index < headers->offset; index++) {
+		header = &headers->items[index];
 		
 		if (strcasecmp(header->key, key) == 0) {
 			return header;
@@ -248,6 +333,8 @@ const http_header_t* http_headers_get(const http_headers_t* const headers, const
 
 static enum HTTPMethod http_method_from_string(const char* const method, const size_t size) {
 	
+	size_t index = 0;
+	
 	static const char* const methods[] = {
 		"GET",
 		"HEAD",
@@ -259,7 +346,7 @@ static enum HTTPMethod http_method_from_string(const char* const method, const s
 		"TRACE"
 	};
 	
-	for (size_t index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
+	for (index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
 		if (strlen(methods[index]) == size && memcmp(methods[index], method, size) == 0) {
 			return (http_method_t) (index + 1);
 		}
@@ -271,15 +358,39 @@ static enum HTTPMethod http_method_from_string(const char* const method, const s
 
 static int http_headers_add_slice(http_headers_t* const headers, const char* const key, const size_t key_size, const char* const value, const size_t value_size) {
 	
-	char key_str[key_size + 1];
+	int status = 0;
+	
+	char* key_str = NULL;
+	char* value_str = NULL;
+	
+	key_str = malloc(key_size + 1);
+	
+	if (key_str == NULL) {
+		status = KADERR_MEMORY_ALLOCATE_FAILURE;
+		goto end;
+	}
+	
+	value_str = malloc(value_size + 1);
+	
+	if (value_str == NULL) {
+		status = KADERR_MEMORY_ALLOCATE_FAILURE;
+		goto end;
+	}
+	
 	memcpy(key_str, key, key_size);
 	key_str[key_size] = '\0';
 	
-	char value_str[value_size + 1];
 	memcpy(value_str, value, value_size);
 	value_str[value_size] = '\0';
 	
-	return http_headers_add(headers, key_str, value_str);
+	status = http_headers_add(headers, key_str, value_str);
+	
+	end:;
+	
+	free(key_str);
+	free(value_str);
+	
+	return status;
 	
 }
 
@@ -303,33 +414,8 @@ int http_response_parse(http_response_t* const object, const char* const buffer,
 
 int http_object_parse(http_object_t* const object, const char* const buffer, const size_t size) {
 	
-	if (object->type == HTTP_REQUEST && size > (size_t) MAX_HTTP_HEADERS_SIZE) {
-		return KADERR_HTTP_HEADERS_TOO_BIG;
-	}
-	
-	// cURL reports HTTP/2 responses with an "HTTP/2 <code>" status line, which the parser doesn't understand, so we rewrite it as HTTP/1.1 and adjust for the 2 extra bytes later
 	const char* parse_buffer = buffer;
 	size_t parse_size = size;
-	
-	char* patched_buffer = NULL;
-	size_t offset_delta = 0;
-	int is_http2 = 0;
-	
-	if (object->type == HTTP_RESPONSE && size > strlen("HTTP/2 ") && memcmp(buffer, "HTTP/2", strlen("HTTP/2")) == 0 && (buffer[strlen("HTTP/2")] == ' ' || buffer[strlen("HTTP/2")] == '\r')) {
-		patched_buffer = malloc(size + 2);
-		
-		if (patched_buffer == NULL) {
-			return KADERR_MEMORY_ALLOCATE_FAILURE;
-		}
-		
-		memcpy(patched_buffer, "HTTP/1.1", strlen("HTTP/1.1"));
-		memcpy(patched_buffer + strlen("HTTP/1.1"), buffer + strlen("HTTP/2"), size - strlen("HTTP/2"));
-		
-		parse_buffer = patched_buffer;
-		parse_size = size + 2;
-		offset_delta = 2;
-		is_http2 = 1;
-	}
 	
 	const char* method = NULL;
 	size_t method_size = 0;
@@ -340,40 +426,84 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	const char* message = NULL;
 	size_t message_size = 0;
 	
+	char* patched_buffer = NULL;
+	
+	struct phr_header headers[MAX_HTTP_HEADERS_COUNT];
+	
+	size_t headers_count = 0;
+	
+	size_t offset_delta = 0;
+	
+	size_t index = 0;
+	
+	size_t headers_size = 0;
+	size_t body_size = 0;
+	
+	int is_http2 = 0;
+	
 	int status = 0;
 	int minor_version = -1;
 	
-	struct phr_header headers[MAX_HTTP_HEADERS_COUNT];
-	size_t headers_count = MAX_HTTP_HEADERS_COUNT;
+	int consumed = 0;
+	int code = 0;
 	
-	const int consumed = (
+	if (object->type == HTTP_REQUEST && size > (size_t) MAX_HTTP_HEADERS_SIZE) {
+		code = KADERR_HTTP_HEADERS_TOO_BIG;
+		goto end;
+	}
+	
+	headers_count = MAX_HTTP_HEADERS_COUNT;
+	
+	/* cURL reports HTTP/2 responses with an "HTTP/2 <code>" status line, which the parser doesn't understand, so we rewrite it as HTTP/1.1 and adjust for the 2 extra bytes later */
+	if (object->type == HTTP_RESPONSE && size > strlen("HTTP/2 ") && memcmp(buffer, "HTTP/2", strlen("HTTP/2")) == 0 && (buffer[strlen("HTTP/2")] == ' ' || buffer[strlen("HTTP/2")] == '\r')) {
+		patched_buffer = malloc(size + 2);
+		
+		if (patched_buffer == NULL) {
+			code = KADERR_MEMORY_ALLOCATE_FAILURE;
+			goto end;
+		}
+		
+		memcpy(patched_buffer, "HTTP/1.1", strlen("HTTP/1.1"));
+		memcpy(patched_buffer + strlen("HTTP/1.1"), buffer + strlen("HTTP/2"), size - strlen("HTTP/2"));
+		
+		parse_buffer = patched_buffer;
+		parse_size = size + 2;
+		offset_delta = 2;
+		
+		is_http2 = 1;
+	}
+	
+	consumed = (
 		(object->type == HTTP_REQUEST)
 			? phr_parse_request(parse_buffer, parse_size, &method, &method_size, &path, &path_size, &minor_version, headers, &headers_count, 0)
 			: phr_parse_response(parse_buffer, parse_size, &minor_version, &status, &message, &message_size, headers, &headers_count, 0)
 	);
 	
 	if (consumed < 0) {
-		free(patched_buffer);
-		return KADERR_HTTP_MALFORMED_REQUEST;
+		code = KADERR_HTTP_MALFORMED_REQUEST;
+		goto end;
 	}
 	
 	if (headers_count == MAX_HTTP_HEADERS_COUNT) {
-		free(patched_buffer);
-		return KADERR_HTTP_HEADERS_TOO_BIG;
+		code = KADERR_HTTP_HEADERS_TOO_BIG;
+		goto end;
 	}
 	
-	int code = KADERR_SUCCESS;
+	code = KADERR_SUCCESS;
 	
 	switch (minor_version) {
-		case 0:
+		case 0: {
 			object->version = HTTP10;
 			break;
-		case 1:
+		}
+		case 1: {
 			object->version = HTTP11;
 			break;
-		default:
+		}
+		default: {
 			code = KADERR_HTTP_UNSUPPORTED_VERSION;
 			break;
+		}
 	}
 	
 	if (is_http2) {
@@ -404,7 +534,7 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	}
 	
 	if (code == KADERR_SUCCESS) {
-		for (size_t index = 0; index < headers_count; index++) {
+		for (index = 0; index < headers_count; index++) {
 			const struct phr_header* const header = &headers[index];
 			
 			code = http_headers_add_slice(&object->headers, header->name, header->name_len, header->value, header->value_len);
@@ -415,39 +545,47 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 		}
 	}
 	
-	free(patched_buffer);
-	
 	if (code != KADERR_SUCCESS) {
-		return code;
+		goto end;
 	}
 	
-	// Body
-	const size_t headers_size = (size_t) consumed - offset_delta;
-	const size_t body_size = size - headers_size;
+	/* Body */
+	
+	headers_size = (size_t) consumed - offset_delta;
+	body_size = size - headers_size;
 	
 	if (body_size > 0) {
 		object->body.content = malloc(body_size);
 		
 		if (object->body.content == NULL) {
-			return KADERR_MEMORY_ALLOCATE_FAILURE;
+			code = KADERR_MEMORY_ALLOCATE_FAILURE;
+			goto end;
 		}
 		
 		memcpy(object->body.content, buffer + headers_size, body_size);
 		object->body.size = body_size;
 	}
 	
-	return KADERR_SUCCESS;
+	end:;
+	
+	free(patched_buffer);
+	
+	return code;
 	
 }
 
 static void http_headers_free(http_headers_t* const headers) {
 	
+	size_t index = 0;
+	
+	http_header_t* header = NULL;
+	
 	if (headers->size < 1) {
 		return;
 	}
 	
-	for (size_t index = 0; index < headers->offset; index++) {
-		http_header_t* const header = &headers->items[index];
+	for (index = 0; index < headers->offset; index++) {
+		header = &headers->items[index];
 		
 		if (header->key != NULL) {
 			free(header->key);
@@ -503,4 +641,3 @@ void http_object_free(http_object_t* const object) {
 	object->ptr = NULL;
 	
 }
-	

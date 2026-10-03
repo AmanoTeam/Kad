@@ -11,42 +11,51 @@
 
 int ssl_init(ssl_context_t* context, int* fd) {
 	
-	SSL_CTX* const ctx = SSL_CTX_new(TLS_server_method());
+	int status = -1;
+	
+	SSL_CTX* ctx = NULL;
+	SSL* ssl = NULL;
+	
+	ctx = SSL_CTX_new(TLS_server_method());
 	
 	if (ctx == NULL) {
-		return -1;
+		goto end;
 	}
 	
 	if (SSL_CTX_use_certificate_ASN1(ctx, sizeof(CERTIFICATE), CERTIFICATE) != 1) {
-		SSL_CTX_free(ctx);
-		return -1;
+		goto end;
 	}
 	
 	if (SSL_CTX_use_RSAPrivateKey_ASN1(ctx, RSA_PRIVATE_KEY, sizeof(RSA_PRIVATE_KEY)) != 1) {
-		SSL_CTX_free(ctx);
-		return -1;
+		goto end;
 	}
 	
-	SSL* const ssl = SSL_new(ctx);
+	ssl = SSL_new(ctx);
 	
 	if (ssl == NULL) {
-		SSL_CTX_free(ctx);
-		return -1;
+		goto end;
 	}
 	
 	SSL_set_fd(ssl, *fd);
 	
 	if (SSL_accept(ssl) != 1) {
-		SSL_free(ssl);
-		SSL_CTX_free(ctx);
-		return -1;
+		goto end;
 	}
 	
 	context->ctx = ctx;
 	context->ssl = ssl;
 	context->initialized = 1;
 	
-	return 0;
+	status = 0;
+	
+	end:;
+	
+	if (status != 0) {
+		SSL_free(ssl);
+		SSL_CTX_free(ctx);
+	}
+	
+	return status;
 	
 }
 
@@ -82,11 +91,13 @@ ssize_t ssl_recv(ssl_context_t* context, char* const buffer, const size_t size) 
 
 int ssl_close(ssl_context_t* context) {
 	
+	int status = 0;
+	
 	if (!context->initialized) {
 		return 0;
 	}
 	
-	const int status = SSL_shutdown(context->ssl);
+	status = SSL_shutdown(context->ssl);
 	
 	SSL_free(context->ssl);
 	SSL_CTX_free(context->ctx);
