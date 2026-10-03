@@ -164,6 +164,55 @@ static int load_ssl_certificates(void) {
 }
 #endif
 
+void poll() {
+	
+	CURLMcode code = CURLM_OK;
+	
+	int running = 1;
+	CURLMsg* msg = NULL;
+	int left = 0;
+	
+	transferdata_t* data = NULL;
+	
+	while (running) {
+		code = curl_multi_perform(curl_multi, &running);
+		
+		if (code != CURLM_OK) {
+			err = APTERR_WCURLMLT_PERFORM_FAILURE;
+			goto end;
+		}
+		
+		if (running) {
+			code = curl_multi_poll(curl_multi, NULL, 0, 0, NULL);
+		}
+		
+		if (code != CURLM_OK) {
+			err = APTERR_WCURLMLT_POLL_FAILURE;
+			goto end;
+		}
+		
+		while ((msg = curl_multi_info_read(curl_multi, &left)) != NULL) {
+			if (msg->msg != CURLMSG_DONE) {
+				continue;
+			}
+			
+			curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
+			
+			ssl_close(&data->context);
+			close(data>fd);
+			buffer_free(&data->buffer);
+			
+			code = curl_multi_remove_handle(curl_multi, msg->easy_handle);
+			
+			if (code != CURLM_OK) {
+				err = APTERR_WCURLMLT_REMOVE_FAILURE;
+				goto end;
+			}
+		}
+	}
+	
+}
+
 static int request_handler(void* pointer) {
 	
 	int fd = *(int*) pointer;
@@ -423,6 +472,8 @@ static int request_handler(void* pointer) {
 	}
 	
 	curl_multi_add_handle(curl_multi, curl);
+	
+	curl_easy_setopt(curl, CURLOPT_PRIVATE, (void*) data);
 	
 	/*
 	const CURLcode status = curl_easy_perform(curl);
