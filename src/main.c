@@ -164,59 +164,102 @@ static int load_ssl_certificates(void) {
 }
 #endif
 
-void poll() {
+struct curl_pending {
+	CURL* handle;
+	struct curl_pending* next;
+};
+
+typedef struct curl_pending curl_pending_t;
+
+static curl_pending_t* curl_pending = NULL;
+static pthread_mutex_t curl_pending_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void* event_loop(void* pointer) {
+	
+	(void) pointer;
 	
 	CURLMcode code = CURLM_OK;
 	
-	int running = 1;
-	CURLMsg* msg = NULL;
-	int left = 0;
+	int running = 0;
 	
-	transferdata_t* data = NULL;
-	
-	while (running) {
+	int err = 0;
+
+	while (1) {
+		pthread_mutex_lock(&curl_pending_mutex);
+		
+		while (curl_pending != NULL) {
+			curl_pending_t* const item = curl_pending;
+			curl_pending = item->next;
+			
+			const CURLMcode add_code = curl_multi_add_handle(curl_multi, item->handle);
+			free(item);
+			
+			if (add_code != CURLM_OK) {
+				loggln(LOG_ERROR, "[error] could not add handle to multi stack: %s", curl_multi_strerror(add_code));
+			}
+		}
+		
+		pthread_mutex_unlock(&curl_pending_mutex);
+		
 		code = curl_multi_perform(curl_multi, &running);
 		
 		if (code != CURLM_OK) {
-			err = APTERR_WCURLMLT_PERFORM_FAILURE;
+			err = KADERR_CURL_MULTI_PERFORM_FAILURE;
 			goto end;
 		}
 		
-		if (running) {
-			code = curl_multi_poll(curl_multi, NULL, 0, 0, NULL);
-		}
-		
-		if (code != CURLM_OK) {
-			err = APTERR_WCURLMLT_POLL_FAILURE;
-			goto end;
-		}
+		int left = 0;
+		CURLMsg* msg = NULL;
 		
 		while ((msg = curl_multi_info_read(curl_multi, &left)) != NULL) {
 			if (msg->msg != CURLMSG_DONE) {
 				continue;
 			}
 			
-			curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
+			if (msg->data.result != CURLE_OK) {
+				loggln(LOG_ERROR, "[error] curl: %s", curl_easy_strerror(msg->data.result));
+			}
 			
-			ssl_close(&data->context);
-			close(data>fd);
-			buffer_free(&data->buffer);
+			transferdata_t* data = NULL;
+			curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
 			
 			code = curl_multi_remove_handle(curl_multi, msg->easy_handle);
 			
 			if (code != CURLM_OK) {
-				err = APTERR_WCURLMLT_REMOVE_FAILURE;
+				err = KADERR_CURL_MULTI_REMOVE_FAILURE;
 				goto end;
 			}
+			
+			curl_easy_cleanup(msg->easy_handle);
+			
+			curl_slist_free_all(data->headers);
+			ssl_close(&data->context);
+			close(data->fd);
+			http_request_free(&data->request);
+			buffer_free(&data->buffer);
+			free(data);
+		}
+		
+		code = curl_multi_poll(curl_multi, NULL, 0, 1000, NULL);
+		
+		if (code != CURLM_OK) {
+			err = KADERR_CURL_MULTI_POLL_FAILURE;
+			goto end;
 		}
 	}
+	
+	end:
+		loggln(LOG_ERROR, "[error] %s: %s", strkaderr(err), curl_multi_strerror(code));
+	
+	return NULL;
 	
 }
 
 static int request_handler(void* pointer) {
 	
 	int fd = *(int*) pointer;
-	
+	free(pointer);
+
 	transferdata_t* data = NULL;
 	
 	data = malloc(sizeof(*data));
@@ -291,7 +334,7 @@ static int request_handler(void* pointer) {
 	
 	curl_global_init(CURL_GLOBAL_ALL);
 	
-	CURL* curl __curl_easy_cleanup__ = curl_easy_init();
+	CURL* curl = curl_easy_init();
 	
 	if (curl == NULL) {
 		return KADERR_CURL_INIT_FAILURE;
@@ -330,7 +373,7 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	struct curl_slist* list __curl_slist_free_all__ = NULL;
+	struct curl_slist* list = NULL;
 	
 	for (size_t index = 0; index < data->request.headers.offset; index++) {
 		header = &data->request.headers.items[index];
@@ -393,6 +436,8 @@ static int request_handler(void* pointer) {
 	if (curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list) != CURLE_OK) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
+	
+	data->headers = list;
 	
 	if (curl_easy_setopt(curl, CURLOPT_URL, data->request.uri) != CURLE_OK) {
 		return KADERR_CURL_SETOPT_FAILURE;
@@ -471,22 +516,26 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	curl_multi_add_handle(curl_multi, curl);
-	
-	curl_easy_setopt(curl, CURLOPT_PRIVATE, (void*) data);
-	
-	/*
-	const CURLcode status = curl_easy_perform(curl);
-	
-	if (status != CURLE_OK) {
-		const char* const message = strlen(curl_error_message) > 0 ? curl_error_message : curl_easy_strerror(status);
-		loggln(LOG_ERROR, "[error] curl: %s", message);
-		
-		return KADERR_CURL_PERFORM_FAILURE;
+	if (curl_easy_setopt(curl, CURLOPT_PRIVATE, (void*) data) != CURLE_OK) {
+		return KADERR_CURL_SETOPT_FAILURE;
 	}
-	*/
-	return KADERR_SUCCESS;
 	
+	curl_pending_t* const item = malloc(sizeof(*item));
+	
+	if (item == NULL) {
+		return KADERR_MEMORY_ALLOCATE_FAILURE;
+	}
+	
+	item->handle = curl;
+	
+	pthread_mutex_lock(&curl_pending_mutex);
+	item->next = curl_pending;
+	curl_pending = item;
+	pthread_mutex_unlock(&curl_pending_mutex);
+	
+	curl_multi_wakeup(curl_multi);
+	
+	return KADERR_SUCCESS;
 	
 }
 
@@ -518,6 +567,15 @@ int main(int argc, char* argv[]) {
 	};
 	
 	curl_multi = curl_multi_init();
+	
+	if (curl_multi == NULL) {
+		loggln(LOG_ERROR, "[error] could not initialize multi stack");
+		
+		return EXIT_FAILURE;
+	}
+	
+	thread_t event_thread = {0};
+	thread_create(&event_thread, event_loop, NULL);
 	
 	if (sigaction(SIGPIPE, &sigpipe_action, NULL) == -1) {
 		const system_error_t error = get_system_error();
@@ -731,9 +789,19 @@ int main(int argc, char* argv[]) {
 		struct sockaddr_storage address = {0};
 		socklen_t size = sizeof(address);
 		
-		const int cfd = accept(fd, (struct sockaddr*) &address, &size);
+		int* cfd = malloc(sizeof(*cfd));
 		
-		if (cfd == -1) {
+		if (cfd == NULL) {
+			const system_error_t error = get_system_error();
+			close(fd);
+			loggln(LOG_ERROR, "[error] could not allocate memory for client socket: %s", error.message);
+			
+			return EXIT_FAILURE;
+		}
+		
+		*cfd = accept(fd, (struct sockaddr*) &address, &size);
+		
+		if (*cfd == -1) {
 			const system_error_t error = get_system_error();
 			close(fd);
 			loggln(LOG_ERROR, "[error] could not accept incoming socket connection: %s", error.message);
@@ -756,7 +824,7 @@ int main(int argc, char* argv[]) {
 		loggln(LOG_INFO, "[info] got connection from %s on port %s", host, port);
 		
 		thread_t thread = {0};
-		thread_create(&thread, handle_request, (void*) &cfd);
+		thread_create(&thread, handle_request, (void*) cfd);
 		threads[position++] = thread;
 		
 		if (position < KAD_DEFAULT_LISTEN_BACKLOG) {
