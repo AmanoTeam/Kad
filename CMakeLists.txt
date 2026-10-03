@@ -98,6 +98,7 @@ set(
 	ssl
 	nghttp2
 	ngtcp2
+	ngtcp2_crypto_boringssl_static
 	nghttp3
 	brotlidec
 	c-ares
@@ -110,6 +111,7 @@ set(HTTP_ONLY ON)
 set(ENABLE_THREADED_RESOLVER OFF)
 set(CURL_USE_OPENSSL ON)
 set(USE_NGHTTP2 ON)
+set(USE_NGTCP2 ON)
 set(CURL_BROTLI ON)
 set(ENABLE_ARES ON)
 set(CURL_USE_LIBPSL OFF)
@@ -139,6 +141,15 @@ set(BUILD_TESTING OFF)
 
 execute_process(
 	COMMAND git submodule update --init --depth=1
+	WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+	COMMAND_ERROR_IS_FATAL ANY
+)
+
+# ngtcp2 and nghttp3 vendor their dependencies as nested submodules
+execute_process(
+	COMMAND git submodule update --init --depth=1 --recursive
+		submodules/ngtcp2
+		submodules/nghttp3
 	WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 	COMMAND_ERROR_IS_FATAL ANY
 )
@@ -174,6 +185,62 @@ if (NOT EXISTS "${BORINGSSL_SOURCE_DIRECTORY}/.patched")
 	)
 
 	file(WRITE "${BORINGSSL_SOURCE_DIRECTORY}/.patched" "")
+endif()
+
+# curl's HTTP/3 code relies on transport parameter and settings APIs that
+# curl-impersonate adds to ngtcp2 and nghttp3
+if (NOT EXISTS "${NGTCP2_SOURCE_DIRECTORY}/.patched")
+	message("-- Patching ngtcp2")
+
+	execute_process(
+		COMMAND patch
+		--directory=${NGTCP2_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CURL_IMPERSONATE_SOURCE_DIRECTORY}/patches/ngtcp2.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+
+	file(READ "${NGTCP2_SOURCE_DIRECTORY}/CMakeLists.txt" FILE_CONTENTS)
+
+	string(REPLACE
+		[=[add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})]=]
+		[=[if(NOT TARGET check)
+  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
+endif()]=]
+		FILE_CONTENTS
+		"${FILE_CONTENTS}"
+	)
+
+	file(WRITE "${NGTCP2_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
+
+	file(WRITE "${NGTCP2_SOURCE_DIRECTORY}/.patched" "")
+endif()
+
+if (NOT EXISTS "${NGHTTP3_SOURCE_DIRECTORY}/.patched")
+	message("-- Patching nghttp3")
+
+	execute_process(
+		COMMAND patch
+		--directory=${NGHTTP3_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CURL_IMPERSONATE_SOURCE_DIRECTORY}/patches/nghttp3.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+
+	file(READ "${NGHTTP3_SOURCE_DIRECTORY}/CMakeLists.txt" FILE_CONTENTS)
+
+	string(REPLACE
+		[=[add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})]=]
+		[=[if(NOT TARGET check)
+  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
+endif()]=]
+		FILE_CONTENTS
+		"${FILE_CONTENTS}"
+	)
+
+	file(WRITE "${NGHTTP3_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
+
+	file(WRITE "${NGHTTP3_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
 if (NOT APPLE)
@@ -227,6 +294,49 @@ set(
 
 set(CARES_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}cares${CMAKE_SHARED_LIBRARY_SUFFIX}")
 
+# ngtcp2: BoringSSL crypto backend only, no tools or examples
+set(ENABLE_OPENSSL OFF)
+set(ENABLE_GNUTLS OFF)
+set(ENABLE_WOLFSSL OFF)
+set(ENABLE_PICOTLS OFF)
+set(ENABLE_BORINGSSL ON)
+# The BoringSSL crypto glue is only available as a static library
+set(ENABLE_STATIC_LIB ON)
+
+# BoringSSL is detected by linking against it, which is not possible before it
+# has been built
+set(HAVE_BORINGSSL TRUE CACHE INTERNAL "" FORCE)
+
+# curl detects the BoringSSL QUIC API by linking against it, which is not
+# possible before it has been built
+set(HAVE_SSL_SET_QUIC_TLS_CBS TRUE CACHE INTERNAL "" FORCE)
+set(BORINGSSL_INCLUDE_DIR "${BORINGSSL_SOURCE_DIRECTORY}/include")
+
+set(BORINGSSL_LIBRARIES "${OPENSSL_SSL_LIBRARY};${OPENSSL_CRYPTO_LIBRARY}")
+
+set(
+	NGTCP2_INCLUDE_DIR
+	"${NGTCP2_SOURCE_DIRECTORY}/lib/includes"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/ngtcp2/lib/includes"
+	"${NGTCP2_SOURCE_DIRECTORY}/crypto/includes"
+)
+
+set(NGTCP2_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}ngtcp2${CMAKE_SHARED_LIBRARY_SUFFIX}")
+
+set(NGTCP2_CRYPTO_BORINGSSL_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/submodules/ngtcp2/crypto/boringssl/${CMAKE_STATIC_LIBRARY_PREFIX}ngtcp2_crypto_boringssl${CMAKE_STATIC_LIBRARY_SUFFIX}")
+
+set(
+	NGHTTP3_INCLUDE_DIR
+	"${NGHTTP3_SOURCE_DIRECTORY}/lib/includes"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp3/lib/includes"
+)
+
+set(NGHTTP3_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}nghttp3${CMAKE_SHARED_LIBRARY_SUFFIX}")
+
+file(WRITE "${NGTCP2_LIBRARY}" "")
+file(WRITE "${NGTCP2_CRYPTO_BORINGSSL_LIBRARY}" "")
+file(WRITE "${NGHTTP3_LIBRARY}" "")
+
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY)
 
 if (ANDROID)
@@ -237,6 +347,9 @@ file(MAKE_DIRECTORY
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/zlib"
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp2/lib/includes"
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/c-ares"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp3/lib/includes"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/ngtcp2/lib/includes"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/ngtcp2/crypto/boringssl"
 )
 
 add_subdirectory(
@@ -263,13 +376,17 @@ add_subdirectory(
 	EXCLUDE_FROM_ALL
 )
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 add_subdirectory(
 	"${NGTCP2_SOURCE_DIRECTORY}"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/ngtcp2"
 	EXCLUDE_FROM_ALL
 )
 
 add_subdirectory(
 	"${NGHTTP3_SOURCE_DIRECTORY}"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp3"
 	EXCLUDE_FROM_ALL
 )
 
@@ -287,6 +404,9 @@ add_subdirectory(
 
 file(REMOVE "${OPENSSL_SSL_LIBRARY}")
 file(REMOVE "${OPENSSL_CRYPTO_LIBRARY}")
+file(REMOVE "${NGTCP2_LIBRARY}")
+file(REMOVE "${NGTCP2_CRYPTO_BORINGSSL_LIBRARY}")
+file(REMOVE "${NGHTTP3_LIBRARY}")
 
 foreach(target ${CURL_LIBRARY_DEPENDENCIES})
 	add_custom_command(
