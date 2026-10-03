@@ -182,19 +182,19 @@ static int request_handler(void* pointer) {
 		return KADERR_SOCKET_RECV_FAILURE;
 	}
 	
-	int rc = http_request_parse(&request, buffer, (size_t) recv_size);
+	http_request_init(&data->request);
+	
+	int rc = http_request_parse(&data->request, buffer, (size_t) recv_size);
 	
 	if (rc != KADERR_SUCCESS) {
 		return rc;
 	}
 	
-	const int is_secure = (request.method == CONNECT);
+	const int is_secure = (data->request.method == CONNECT);
 	
 	data->fd = fd;
 	data->is_secure = is_secure;
-	
-	http_request_init(&data->request);
-	
+
 	if (is_secure) {
 		ssize_t size = send(fd, "HTTP/1.0 200 OK\r\n\r\n", 19, 0);
 		
@@ -202,28 +202,28 @@ static int request_handler(void* pointer) {
 			return KADERR_SOCKET_SEND_FAILURE;
 		}
 		
-		if (ssl_init(&context, &fd) == -1) {
+		if (ssl_init(&data->context, &fd) == -1) {
 			return KADERR_SSL_INIT_FAILURE;
 		}
 		
-		size = ssl_recv(&context, buffer, sizeof(buffer));
+		size = ssl_recv(&data->context, buffer, sizeof(buffer));
 		
 		if (size <= 0) {
 			return KADERR_SSL_RECV_FAILURE;
 		}
 		
-		char hostname[strlen(request.uri) + 1];
-		strcpy(hostname, request.uri);
+		char hostname[strlen(data->request.uri) + 1];
+		strcpy(hostname, data->request.uri);
 		
-		http_request_free(&request);
+		http_request_free(&data->request);
 		
-		const int code = http_request_parse(&request, buffer, (size_t) size);
+		const int code = http_request_parse(&data->request, buffer, (size_t) size);
 		
 		if (code != KADERR_SUCCESS) {
 			return code;
 		}
 		
-		char* uri = malloc(strlen(HTTPS_SCHEME) + strlen(SCHEME_SEPARATOR) + strlen(hostname) + strlen(request.uri) + 1);
+		char* uri = malloc(strlen(HTTPS_SCHEME) + strlen(SCHEME_SEPARATOR) + strlen(hostname) + strlen(data->request.uri) + 1);
 		
 		if (uri == NULL) {
 			return KADERR_MEMORY_ALLOCATE_FAILURE;
@@ -232,13 +232,13 @@ static int request_handler(void* pointer) {
 		strcpy(uri, HTTPS_SCHEME);
 		strcat(uri, SCHEME_SEPARATOR);
 		strcat(uri, hostname);
-		strcat(uri, request.uri);
+		strcat(uri, data->request.uri);
 		
-		free(request.uri);
-		request.uri = uri;
+		free(data->request.uri);
+		data->request.uri = uri;
 	}
 	
-	loggln(LOG_INFO, "[info] client request to %s", request.uri);
+	loggln(LOG_INFO, "[info] client request to %s", data->request.uri);
 	
 	curl_global_init(CURL_GLOBAL_ALL);
 	
@@ -283,8 +283,8 @@ static int request_handler(void* pointer) {
 	
 	struct curl_slist* list __curl_slist_free_all__ = NULL;
 	
-	for (size_t index = 0; index < request.headers.offset; index++) {
-		header = &request.headers.items[index];
+	for (size_t index = 0; index < data->request.headers.offset; index++) {
+		header = &data->request.headers.items[index];
 		
 		int matches = 0;
 		
@@ -317,8 +317,8 @@ static int request_handler(void* pointer) {
 		list = tmp;
 	}
 	
-	if (request.method == POST || request.method == PUT) {
-		header = http_headers_get(&request.headers, "Expect");
+	if (data->request.method == POST || data->request.method == PUT) {
+		header = http_headers_get(&data->request.headers, "Expect");
 		
 		if (header == NULL) {
 			struct curl_slist* const tmp = curl_slist_append(list, "Expect:");
@@ -345,40 +345,40 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	if (curl_easy_setopt(curl, CURLOPT_URL, request.uri) != CURLE_OK) {
+	if (curl_easy_setopt(curl, CURLOPT_URL, data->request.uri) != CURLE_OK) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	if (request.method != HEAD) {
+	if (data->request.method != HEAD) {
 		if (curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback) != CURLE_OK) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
 		
-		if (curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*) &data) != CURLE_OK) {
+		if (curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*) data) != CURLE_OK) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
 	}
 	
-	header = http_headers_get(&request.headers, "Transfer-Encoding");
+	header = http_headers_get(&data->request.headers, "Transfer-Encoding");
 	
 	const int use_chunked = (header != NULL && strcmp(header->value, "chunked") == 0);
 	
 	size_t content_length = 0;
 	
 	if (!use_chunked) {
-		header = http_headers_get(&request.headers, "Content-Length");
+		header = http_headers_get(&data->request.headers, "Content-Length");
 		
 		if (header != NULL) {
 			content_length = strtoull(header->value, NULL, 10);
 		}
 	}
 	
-	if (request.body.size > 0 || content_length > 0 || use_chunked || recv_size >= MAX_HTTP_HEADERS_SIZE) {
+	if (data->request.body.size > 0 || content_length > 0 || use_chunked || recv_size >= MAX_HTTP_HEADERS_SIZE) {
 		if (curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback) != CURLE_OK) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
 		
-		if (curl_easy_setopt(curl, CURLOPT_READDATA, (void*) &data) != CURLE_OK) {
+		if (curl_easy_setopt(curl, CURLOPT_READDATA, (void*) data) != CURLE_OK) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
 		
@@ -388,14 +388,14 @@ static int request_handler(void* pointer) {
 			}
 		}
 		
-		data.remaining = content_length;
+		data->remaining = content_length;
 	}
 	
-	const char* const http_method = http_method_stringify(request.method);
+	const char* const http_method = http_method_stringify(data->request.method);
 	
 	CURLcode value = 0;
 	
-	switch (request.method) {
+	switch (data->request.method) {
 		case GET:
 			value = curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
 			break;
@@ -418,7 +418,7 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	if (curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void*) &data) != CURLE_OK) {
+	if (curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void*) data) != CURLE_OK) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
