@@ -24,15 +24,10 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
-set(EXEC_RPATH "")
-set(LIB_RPATH "")
-
 if (APPLE)
-	set(EXEC_RPATH "@loader_path/../lib")
-	set(LIB_RPATH "@loader_path")
+	set(CMAKE_INSTALL_RPATH "@loader_path/../lib" "@loader_path")
 elseif (UNIX)
-	set(EXEC_RPATH "$ORIGIN/../lib:$ORIGIN")
-	set(LIB_RPATH "$ORIGIN")
+	set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib:$ORIGIN")
 endif()
 
 set(CURL_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/curl")
@@ -433,26 +428,10 @@ if (KAD_LTO)
 	endif()
 endif()
 
-set_target_properties(
-	kad
-	PROPERTIES
-	BUILD_RPATH "${EXEC_RPATH}"
-	INSTALL_RPATH "${INSTALL_RPATH}"
-	C_STANDARD 99
-	C_STANDARD_REQUIRED ON
-)
-
 target_compile_definitions(
 	kad
 	PRIVATE
 	_GNU_SOURCE
-)
-
-set_target_properties(
-	libcurl_shared ssl brotlidec
-	PROPERTIES
-	BUILD_RPATH "${LIB_RPATH}"
-	INSTALL_RPATH "${LIB_RPATH}"
 )
 
 find_package(Threads REQUIRED)
