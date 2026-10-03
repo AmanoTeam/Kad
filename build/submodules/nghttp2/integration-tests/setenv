@@ -1,0 +1,14 @@
+#!/bin/sh -e
+
+libdir="/sdcard/Kad/build/submodules/nghttp2/lib"
+if [ -d "$libdir/.libs" ]; then
+    libdir="$libdir/.libs"
+fi
+
+export CGO_CFLAGS="-I/sdcard/Kad/submodules/nghttp2/lib/includes -I/sdcard/Kad/build/submodules/nghttp2/lib/includes "
+export CGO_CPPFLAGS=""
+export CGO_LDFLAGS="-L$libdir "
+export LD_LIBRARY_PATH="$libdir"
+export DYLD_LIBRARY_PATH="$libdir"
+export GODEBUG=cgocheck=0
+"$@"

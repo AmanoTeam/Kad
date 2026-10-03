@@ -34,7 +34,9 @@ endif()
 
 set(CURL_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/curl")
 set(BORINGSSL_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/boringssl")
+set(NGTCP2_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/ngtcp2")
 set(NGHTTP2_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/nghttp2")
+set(NGHTTP3_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/nghttp3")
 set(ZLIB_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/zlib")
 set(BROTLI_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/brotli")
 set(CARES_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/c-ares")
@@ -95,6 +97,8 @@ set(
 	crypto
 	ssl
 	nghttp2
+	ngtcp2
+	nghttp3
 	brotlidec
 	c-ares
 )
@@ -131,6 +135,7 @@ set(ENABLE_LIB_ONLY ON CACHE BOOL "")
 
 # BoringSSL
 set(BUILD_SHARED_LIBS ON)
+set(BUILD_TESTING OFF)
 
 execute_process(
 	COMMAND git submodule update --init --depth=1
@@ -255,6 +260,16 @@ add_subdirectory(
 add_subdirectory(
 	"${NGHTTP2_SOURCE_DIRECTORY}"
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp2"
+	EXCLUDE_FROM_ALL
+)
+
+add_subdirectory(
+	"${NGTCP2_SOURCE_DIRECTORY}"
+	EXCLUDE_FROM_ALL
+)
+
+add_subdirectory(
+	"${NGHTTP3_SOURCE_DIRECTORY}"
 	EXCLUDE_FROM_ALL
 )
 
