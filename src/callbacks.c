@@ -18,8 +18,9 @@
 #include "constants.h"
 #include "transferdata.h"
 #include "errors.h"
+#include "logging.h"
 
-int sock_write(void* fd, const unsigned char *buffer, size_t buffer_size) {
+int sock_write(void* fd, const unsigned char* buffer, size_t buffer_size) {
 	
 	for (;;) {
 		const ssize_t wlen = write(*(int*) fd, buffer, buffer_size);
@@ -55,12 +56,12 @@ int sock_read(void* fd, unsigned char* buffer, size_t buffer_size) {
 	
 }
 
-size_t read_callback(char *dest, size_t size, size_t nmemb, void *userp) {
+size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 	
 	(void) size;
 	(void) nmemb;
 	
-	struct transferdata* const data = (struct transferdata*) userp;
+	transferdata_t* const data = (transferdata_t*) userp;
 	
 	if (data->eof) {
 		return 0;
@@ -91,9 +92,8 @@ size_t read_callback(char *dest, size_t size, size_t nmemb, void *userp) {
 	
 }
 
-size_t read_callback_empty(char *dest, size_t size, size_t nmemb, void *userp) {
+size_t read_callback_empty(char* dest, size_t size, size_t nmemb, void* userp) {
 	
-	(void) size;
 	(void) size;
 	(void) nmemb;
 	(void) userp;
@@ -104,7 +104,7 @@ size_t read_callback_empty(char *dest, size_t size, size_t nmemb, void *userp) {
 
 size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 	
-	struct transferdata* const data = (struct transferdata*) userp;
+	transferdata_t* const data = (transferdata_t*) userp;
 	const size_t chunk_size = size * nmemb;
 	
 	const ssize_t wsize = (data->is_secure) ? ssl_send(data->context, ptr, chunk_size) : send(data->fd, ptr, chunk_size, 0);
@@ -117,9 +117,9 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 	
 }
 
-size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata) {
+size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
 	
-	struct transferdata* const data = (struct transferdata*) userdata;
+	transferdata_t* const data = (transferdata_t*) userdata;
 	const size_t chunk_size = nitems * size;
 	
 	const size_t slength = data->buffer.slength + chunk_size;
@@ -135,7 +135,7 @@ size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata)
 	data->buffer.slength = slength;
 	
 	if (data->buffer.slength > strlen(CRLFCRLF) && memcmp(data->buffer.s + (data->buffer.slength - strlen(CRLFCRLF)), CRLFCRLF, strlen(CRLFCRLF)) == 0) {
-		struct HTTPResponse response __http_response_free__ = {0};
+		http_response_t response __http_response_free__ = {0};
 		http_response_init(&response);
 		
 		int code = http_response_parse(&response, data->buffer.s, data->buffer.slength);
@@ -170,7 +170,7 @@ size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata)
 		}
 		
 		for (size_t index = 0; index < response.headers.offset; index++) {
-			const struct HTTPHeader* const header = &response.headers.items[index];
+			const http_header_t* const header = &response.headers.items[index];
 			
 			// cURL already performs content decoding, so there is no need for these headers
 			if (strcasecmp(header->key, "Content-Encoding") == 0) {
@@ -183,13 +183,13 @@ size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata)
 			
 			// This header will report an incorrect value for compressed/chunked responses, so let's just remove it
 			if (strcasecmp(header->key, "Content-Length") == 0) {
-				const struct HTTPHeader* const item = http_headers_get(&response.headers, "Transfer-Encoding");
+				const http_header_t* const item = http_headers_get(&response.headers, "Transfer-Encoding");
 				
 				if (item != NULL && strcmp(item->value, "chunked") == 0) {
 					continue;
 				}
 				
-				const struct HTTPHeader* const subitem = http_headers_get(&response.headers, "Content-Encoding");
+				const http_header_t* const subitem = http_headers_get(&response.headers, "Content-Encoding");
 				
 				if (subitem != NULL) {
 					continue;
@@ -242,6 +242,6 @@ size_t header_callback(char *buffer, size_t size, size_t nitems, void *userdata)
 		buffer_free(&data->buffer);
 	}
 	
-	 return nitems * size;
+	return nitems * size;
 	
 }

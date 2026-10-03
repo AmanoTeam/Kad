@@ -9,6 +9,7 @@ project(
 )
 
 option(KAD_LTO "Turn on compiler link-time optimizations" OFF)
+option(KAD_UNICODE "Enable Unicode support for Windows builds" ON)
 option(KAD_SSL_VERIFY "Enable SSL certificate verification in libcurl" ON)
 
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
@@ -53,13 +54,26 @@ set(
 	KAD_SOURCE_FILES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/buffer.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/errors.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/systemerror.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ssl.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/callbacks.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/http.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/cleanup.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/main.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/argparser.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/argparse.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/threads.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/logging.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/fstream.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/getexec.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/parentpath.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/basename.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/realpath.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/absrel.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/hex.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/strsplit.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/strsub.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/urlencode.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/urldecode.c"
 	"${PICOHTTPPARSER_SOURCE_DIRECTORY}/picohttpparser.c"
 )
 
@@ -598,13 +612,27 @@ if (NOT KAD_SSL_VERIFY)
 		PRIVATE
 		KAD_DISABLE_SSL_VERIFY
 	)
-else()
+endif()
+
+# Enable Unicode on Windows builds
+if (WIN32 AND KAD_UNICODE)
 	target_sources(
 		kad
 		PRIVATE
-		"${CMAKE_CURRENT_SOURCE_DIR}/src/filesystem.c"
-		"${CMAKE_CURRENT_SOURCE_DIR}/src/stringu.c"
-		"${CMAKE_CURRENT_SOURCE_DIR}/src/fstream.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/wio.c"
+	)
+	
+	target_compile_definitions(
+		kad
+		PRIVATE
+		UNICODE _UNICODE
+	)
+	
+	target_link_options(
+		kad
+		BEFORE
+		PRIVATE
+		-municode
 	)
 endif()
 
@@ -627,7 +655,15 @@ set_target_properties(
 	kad
 	PROPERTIES
 	BUILD_RPATH "${EXEC_RPATH}"
-	INSTALL_RPATH "${EXEC_RPATH}"
+	INSTALL_RPATH "${INSTALL_RPATH}"
+	C_STANDARD 99
+	C_STANDARD_REQUIRED ON
+)
+
+target_compile_definitions(
+	kad
+	PRIVATE
+	_GNU_SOURCE
 )
 
 set_target_properties(

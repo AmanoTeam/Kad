@@ -16,15 +16,15 @@ void __close(int* ptr) {
 	close(*ptr);
 }
 
-void __http_request_free(struct HTTPRequest* ptr) {
+void __http_request_free(http_request_t* ptr) {
 	http_request_free(ptr);
 }
 
-void __http_response_free(struct HTTPResponse* ptr) {
+void __http_response_free(http_response_t* ptr) {
 	http_response_free(ptr);
 }
 
-void __ssl_close(struct SSLContext* ptr) {
+void __ssl_close(ssl_context_t* ptr) {
 	ssl_close(ptr);
 }
 

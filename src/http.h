@@ -1,3 +1,6 @@
+#if !defined(HTTP_H)
+#define HTTP_H
+
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -88,10 +91,18 @@ enum HTTPObjectType {
 	HTTP_REQUEST
 };
 
+typedef enum HTTPObjectType http_object_type_t;
+
+typedef enum HTTPMethod http_method_t;
+typedef enum HTTPVersion http_version_t;
+typedef enum HTTPStatusCode http_status_code_t;
+
 struct HTTPHeader {
 	char* key;
 	char* value;
 };
+
+typedef struct HTTPHeader http_header_t;
 
 struct HTTPHeaders {
 	size_t offset;
@@ -100,60 +111,70 @@ struct HTTPHeaders {
 	size_t slength;
 };
 
+typedef struct HTTPHeaders http_headers_t;
+
 struct HTTPBody {
 	size_t size;
 	char* content;
 };
 
+typedef struct HTTPBody http_body_t;
+
 struct HTTPResponse {
-	enum HTTPObjectType type;
-	enum HTTPStatusCode status;
-	enum HTTPVersion version;
-	enum HTTPMethod method;
-	struct HTTPHeaders headers;
-	struct HTTPBody body;
+	http_object_type_t type;
+	http_status_code_t status;
+	http_version_t version;
+	http_method_t method;
+	http_headers_t headers;
+	http_body_t body;
 	char* uri;
 	const char* ptr;
 };
+
+typedef struct HTTPResponse http_response_t;
 
 struct HTTPRequest {
-	enum HTTPObjectType type;
-	enum HTTPStatusCode status;
-	enum HTTPVersion version;
-	enum HTTPMethod method;
-	struct HTTPHeaders headers;
-	struct HTTPBody body;
+	http_object_type_t type;
+	http_status_code_t status;
+	http_version_t version;
+	http_method_t method;
+	http_headers_t headers;
+	http_body_t body;
 	char* uri;
 	const char* ptr;
 };
+
+typedef struct HTTPRequest http_request_t;
 
 struct HTTPObject {
-	enum HTTPObjectType type;
-	enum HTTPStatusCode status;
-	enum HTTPVersion version;
-	enum HTTPMethod method;
-	struct HTTPHeaders headers;
-	struct HTTPBody body;
+	http_object_type_t type;
+	http_status_code_t status;
+	http_version_t version;
+	http_method_t method;
+	http_headers_t headers;
+	http_body_t body;
 	char* uri;
 	const char* ptr;
 };
 
-const char* http_method_stringify(const enum HTTPMethod method);
-const char* http_version_stringify(const enum HTTPVersion version);
-const char* http_status_stringify(const enum HTTPStatusCode status_code);
+typedef struct HTTPObject http_object_t;
 
-int http_headers_add(struct HTTPHeaders* const headers, const char* key, const char* value);
-const struct HTTPHeader* http_headers_get(const struct HTTPHeaders* const headers, const char* key);
+const char* http_method_stringify(const http_method_t method);
+const char* http_version_stringify(const http_version_t version);
+const char* http_status_stringify(const http_status_code_t status_code);
 
-int http_request_parse(struct HTTPRequest* const request, const char* const buffer, const size_t size);
-int http_response_parse(struct HTTPResponse* const request, const char* const buffer, const size_t size);
-int http_object_parse(struct HTTPObject* const object, const char* const buffer, const size_t size);
+int http_headers_add(http_headers_t* const headers, const char* key, const char* value);
+const http_header_t* http_headers_get(const http_headers_t* const headers, const char* key);
 
-void http_request_free(struct HTTPRequest* const request);
-void http_response_free(struct HTTPResponse* const response);
-void http_object_free(struct HTTPObject* const object);
+int http_request_parse(http_request_t* const request, const char* const buffer, const size_t size);
+int http_response_parse(http_response_t* const response, const char* const buffer, const size_t size);
+int http_object_parse(http_object_t* const object, const char* const buffer, const size_t size);
 
-void http_request_init(struct HTTPRequest* const request);
-void http_response_init(struct HTTPResponse* const response);
+void http_request_free(http_request_t* const request);
+void http_response_free(http_response_t* const response);
+void http_object_free(http_object_t* const object);
 
-#pragma once
+void http_request_init(http_request_t* const request);
+void http_response_init(http_response_t* const response);
+
+#endif

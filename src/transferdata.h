@@ -1,15 +1,20 @@
+#if !defined(TRANSFERDATA_H)
+#define TRANSFERDATA_H
+
 #include "ssl.h"
 #include "http.h"
 #include "buffer.h"
 
 struct transferdata {
-	struct SSLContext* context;
-	struct HTTPRequest* request;
-	struct HTTPResponse* response;
+	ssl_context_t* context;
+	http_request_t* request;
+	http_response_t* response;
 	int fd;
 	int is_secure;
 	int eof;
 	buffer_t buffer;
 };
 
-#pragma once
+typedef struct transferdata transferdata_t;
+
+#endif

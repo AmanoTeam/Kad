@@ -10,7 +10,7 @@
 
 static const size_t MAX_HTTP_HEADERS_COUNT = 128;
 
-const char* http_method_stringify(const enum HTTPMethod method) {
+const char* http_method_stringify(const http_method_t method) {
 	
 	switch (method) {
 		case GET:
@@ -35,7 +35,7 @@ const char* http_method_stringify(const enum HTTPMethod method) {
 	
 }
 
-const char* http_version_stringify(const enum HTTPVersion version) {
+const char* http_version_stringify(const http_version_t version) {
 	
 	switch (version) {
 		case HTTP10:
@@ -50,7 +50,7 @@ const char* http_version_stringify(const enum HTTPVersion version) {
 	
 }
 
-const char* http_status_stringify(const enum HTTPStatusCode status_code) {
+const char* http_status_stringify(const http_status_code_t status_code) {
 	
 	switch (status_code) {
 		case CONTINUE:
@@ -183,9 +183,9 @@ const char* http_status_stringify(const enum HTTPStatusCode status_code) {
 	
 }
 
-int http_headers_add(struct HTTPHeaders* const headers, const char* key, const char* value) {
+int http_headers_add(http_headers_t* const headers, const char* key, const char* value) {
 	
-	struct HTTPHeader header = {
+	http_header_t header = {
 		.key = malloc(strlen(key) + 1),
 		.value = malloc(strlen(value) + 1)
 	};
@@ -200,8 +200,8 @@ int http_headers_add(struct HTTPHeaders* const headers, const char* key, const c
 	strcpy(header.key, key);
 	strcpy(header.value, value);
 	
-	const size_t size = headers->size + sizeof(struct HTTPHeader) * 1;
-	struct HTTPHeader* items = (struct HTTPHeader*) realloc(headers->items, size);
+	const size_t size = headers->size + sizeof(http_header_t) * 1;
+	http_header_t* items = (http_header_t*) realloc(headers->items, size);
 	
 	if (items == NULL) {
 		free(header.key);
@@ -232,10 +232,10 @@ int http_headers_add(struct HTTPHeaders* const headers, const char* key, const c
 	
 }
 
-const struct HTTPHeader* http_headers_get(const struct HTTPHeaders* const headers, const char* key) {
+const http_header_t* http_headers_get(const http_headers_t* const headers, const char* key) {
 	
 	for (size_t index = 0; index < headers->offset; index++) {
-		const struct HTTPHeader* header = &headers->items[index];
+		const http_header_t* header = &headers->items[index];
 		
 		if (strcasecmp(header->key, key) == 0) {
 			return header;
@@ -261,15 +261,15 @@ static enum HTTPMethod http_method_from_string(const char* const method, const s
 	
 	for (size_t index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
 		if (strlen(methods[index]) == size && memcmp(methods[index], method, size) == 0) {
-			return (enum HTTPMethod) (index + 1);
+			return (http_method_t) (index + 1);
 		}
 	}
 	
-	return (enum HTTPMethod) 0;
+	return (http_method_t) 0;
 	
 }
 
-static int http_headers_add_slice(struct HTTPHeaders* const headers, const char* const key, const size_t key_size, const char* const value, const size_t value_size) {
+static int http_headers_add_slice(http_headers_t* const headers, const char* const key, const size_t key_size, const char* const value, const size_t value_size) {
 	
 	char key_str[key_size + 1];
 	memcpy(key_str, key, key_size);
@@ -283,25 +283,25 @@ static int http_headers_add_slice(struct HTTPHeaders* const headers, const char*
 	
 }
 
-void http_request_init(struct HTTPRequest* const request) {
+void http_request_init(http_request_t* const request) {
 	memset(request, 0, sizeof(*request));
 	request->type = HTTP_REQUEST;
 }
 
-void http_response_init(struct HTTPResponse* const response) {
+void http_response_init(http_response_t* const response) {
 	memset(response, 0, sizeof(*response));
 	response->type = HTTP_RESPONSE;
 }
 
-int http_request_parse(struct HTTPRequest* const object, const char* const buffer, const size_t size) {
-	return http_object_parse((struct HTTPObject*) object, buffer, size);
+int http_request_parse(http_request_t* const object, const char* const buffer, const size_t size) {
+	return http_object_parse((http_object_t*) object, buffer, size);
 }
 
-int http_response_parse(struct HTTPResponse* const object, const char* const buffer, const size_t size) {
-	return http_object_parse((struct HTTPObject*) object, buffer, size);
+int http_response_parse(http_response_t* const object, const char* const buffer, const size_t size) {
+	return http_object_parse((http_object_t*) object, buffer, size);
 }
 
-int http_object_parse(struct HTTPObject* const object, const char* const buffer, const size_t size) {
+int http_object_parse(http_object_t* const object, const char* const buffer, const size_t size) {
 	
 	if (object->type == HTTP_REQUEST && size > (size_t) MAX_HTTP_HEADERS_SIZE) {
 		return KADERR_HTTP_HEADERS_TOO_BIG;
@@ -400,7 +400,7 @@ int http_object_parse(struct HTTPObject* const object, const char* const buffer,
 	}
 	
 	if (code == KADERR_SUCCESS && object->type == HTTP_RESPONSE) {
-		object->status = (enum HTTPStatusCode) status;
+		object->status = (http_status_code_t) status;
 	}
 	
 	if (code == KADERR_SUCCESS) {
@@ -440,14 +440,14 @@ int http_object_parse(struct HTTPObject* const object, const char* const buffer,
 	
 }
 
-static void http_headers_free(struct HTTPHeaders* const headers) {
+static void http_headers_free(http_headers_t* const headers) {
 	
 	if (headers->size < 1) {
 		return;
 	}
 	
 	for (size_t index = 0; index < headers->offset; index++) {
-		struct HTTPHeader* const header = &headers->items[index];
+		http_header_t* const header = &headers->items[index];
 		
 		if (header->key != NULL) {
 			free(header->key);
@@ -468,7 +468,7 @@ static void http_headers_free(struct HTTPHeaders* const headers) {
 	
 }
 
-static void http_body_free(struct HTTPBody* const body) {
+static void http_body_free(http_body_t* const body) {
 	
 	if (body->size < 1) {
 		return;
@@ -481,18 +481,18 @@ static void http_body_free(struct HTTPBody* const body) {
 	
 }
 
-void http_request_free(struct HTTPRequest* const request) {
-	http_object_free((struct HTTPObject*) request);
+void http_request_free(http_request_t* const request) {
+	http_object_free((http_object_t*) request);
 }
 
-void http_response_free(struct HTTPResponse* const response) {
-	http_object_free((struct HTTPObject*) response);
+void http_response_free(http_response_t* const response) {
+	http_object_free((http_object_t*) response);
 }
 
-void http_object_free(struct HTTPObject* const object) {
+void http_object_free(http_object_t* const object) {
 	
 	object->version = (enum HTTPVersion) 0;
-	object->method = (enum HTTPMethod) 0;
+	object->method = (http_method_t) 0;
 	
 	http_headers_free(&object->headers);
 	http_body_free(&object->body);
