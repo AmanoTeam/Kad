@@ -353,10 +353,9 @@ static int request_handler(void* pointer) {
 	
 	size_t content_length = 0;
 	
-	int matches = 0;
+	int status = 0;
 	
 	int is_secure = 0;
-	int use_chunked = 0;
 	
 	ssize_t recv_size = 0;
 	ssize_t size = 0;
@@ -510,19 +509,21 @@ static int request_handler(void* pointer) {
 	for (index = 0; index < data->request.headers.offset; index++) {
 		header = &data->request.headers.items[index];
 		
-		matches = 0;
+		status = 0;
 		
 		for (subindex = 0; subindex < sizeof(IMPERSONATE_HEADERS) / sizeof(*IMPERSONATE_HEADERS); subindex++) {
 			name = IMPERSONATE_HEADERS[subindex];
 			
-			matches = (strcasecmp(header->key, name) == 0);
+			status = (strcasecmp(header->key, name) == 0);
 			
-			if (matches) {
-				break;
+			if (!status) {
+				continue;
 			}
+			
+			break;
 		}
 		
-		if (matches) {
+		if (status) {
 			continue;
 		}
 		
@@ -589,9 +590,9 @@ static int request_handler(void* pointer) {
 	
 	header = http_headers_get(&data->request.headers, "Transfer-Encoding");
 	
-	use_chunked = (header != NULL && strcmp(header->value, "chunked") == 0);
+	status = (header != NULL && strcmp(header->value, "chunked") == 0);
 	
-	if (!use_chunked) {
+	if (!status) {
 		header = http_headers_get(&data->request.headers, "Content-Length");
 		
 		if (header != NULL) {
@@ -599,7 +600,7 @@ static int request_handler(void* pointer) {
 		}
 	}
 	
-	if (data->request.body.size > 0 || content_length > 0 || use_chunked || recv_size >= MAX_HTTP_HEADERS_SIZE) {
+	if (data->request.body.size > 0 || content_length > 0 || status || recv_size >= MAX_HTTP_HEADERS_SIZE) {
 		if (curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback) != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
