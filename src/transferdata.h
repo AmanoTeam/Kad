@@ -11,7 +11,7 @@ struct transferdata {
 	http_response_t* response;
 	int fd;
 	int is_secure;
-	int eof;
+	size_t remaining;
 	buffer_t buffer;
 };
 

@@ -13,9 +13,6 @@
 [submodule "submodules/boringssl"]
 	path = submodules/boringssl
 	url = https://github.com/google/boringssl
-[submodule "submodules/bearssl"]
-	path = submodules/bearssl
-	url = https://github.com/AmanoTeam/BearSSL
 [submodule "submodules/brotli"]
 	path = submodules/brotli
 	url = https://github.com/google/brotli

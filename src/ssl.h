@@ -7,12 +7,11 @@
 	#include <sys/types.h>
 #endif
 
-#include <bearssl.h>
+#include <openssl/ssl.h>
 
 struct SSLContext {
-	br_ssl_server_context server_context;
-	br_sslio_context io_context;
-	unsigned char io[BR_SSL_BUFSIZE_BIDI];
+	SSL_CTX* ctx;
+	SSL* ssl;
 	int initialized;
 };
 
