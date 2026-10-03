@@ -145,7 +145,6 @@ execute_process(
 	COMMAND_ERROR_IS_FATAL ANY
 )
 
-# ngtcp2 and nghttp3 vendor their dependencies as nested submodules
 execute_process(
 	COMMAND git submodule update --init --depth=1 --recursive
 		submodules/ngtcp2
@@ -187,8 +186,6 @@ if (NOT EXISTS "${BORINGSSL_SOURCE_DIRECTORY}/.patched")
 	file(WRITE "${BORINGSSL_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
-# curl's HTTP/3 code relies on transport parameter and settings APIs that
-# curl-impersonate adds to ngtcp2 and nghttp3
 if (NOT EXISTS "${NGTCP2_SOURCE_DIRECTORY}/.patched")
 	message("-- Patching ngtcp2")
 
@@ -294,21 +291,14 @@ set(
 
 set(CARES_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}cares${CMAKE_SHARED_LIBRARY_SUFFIX}")
 
-# ngtcp2: BoringSSL crypto backend only, no tools or examples
 set(ENABLE_OPENSSL OFF)
 set(ENABLE_GNUTLS OFF)
 set(ENABLE_WOLFSSL OFF)
 set(ENABLE_PICOTLS OFF)
 set(ENABLE_BORINGSSL ON)
-# The BoringSSL crypto glue is only available as a static library
 set(ENABLE_STATIC_LIB ON)
 
-# BoringSSL is detected by linking against it, which is not possible before it
-# has been built
 set(HAVE_BORINGSSL TRUE CACHE INTERNAL "" FORCE)
-
-# curl detects the BoringSSL QUIC API by linking against it, which is not
-# possible before it has been built
 set(HAVE_SSL_SET_QUIC_TLS_CBS TRUE CACHE INTERNAL "" FORCE)
 set(BORINGSSL_INCLUDE_DIR "${BORINGSSL_SOURCE_DIRECTORY}/include")
 
