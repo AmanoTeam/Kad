@@ -193,31 +193,34 @@ static void* event_loop(void* pointer) {
 
 	while (1) {
 		pthread_mutex_lock(&curl_pending_mutex);
+		item = curl_pending;
+		curl_pending = NULL;
+		pthread_mutex_unlock(&curl_pending_mutex);
 		
-		while (curl_pending != NULL) {
-			item = curl_pending;
-			curl_pending = item->next;
+		while (item != NULL) {
+			curl_pending_t* const next = item->next;
 			
-			code = curl_multi_add_handle(curl_multi, item->handle);
-			
+			CURL* const handle = item->handle;
 			free(item);
+			
+			code = curl_multi_add_handle(curl_multi, handle);
 			
 			if (code != CURLM_OK) {
 				loggln(LOG_ERROR, "[error] could not add handle to multi stack: %s", curl_multi_strerror(code));
 				
-				easy_code = curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
+				easy_code = curl_easy_getinfo(handle, CURLINFO_PRIVATE, &data);
 				
 				if (easy_code != CURLE_OK) {
-					err = APTERR_WCURL_GETINFO_FAILURE;
+					err = KADERR_CURL_GETINFO_FAILURE;
 					goto end;
 				}
 				
-				curl_easy_cleanup(item->handle);
+				curl_easy_cleanup(handle);
 				transferdata_close(data);
 			}
+			
+			item = next;
 		}
-		
-		pthread_mutex_unlock(&curl_pending_mutex);
 		
 		code = curl_multi_perform(curl_multi, &running);
 		
@@ -238,7 +241,7 @@ static void* event_loop(void* pointer) {
 			easy_code = curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
 			
 			if (easy_code != CURLE_OK) {
-				err = APTERR_WCURL_GETINFO_FAILURE;
+				err = KADERR_CURL_GETINFO_FAILURE;
 				goto end;
 			}
 			
@@ -262,7 +265,11 @@ static void* event_loop(void* pointer) {
 	}
 	
 	end:
-		loggln(LOG_ERROR, "[error] %s: %s", strkaderr(err), curl_multi_strerror(code));
+		if (easy_code != CURLE_OK) {
+			loggln(LOG_ERROR, "[error] %s: %s", strkaderr(err), curl_easy_strerror(easy_code));
+		} else {
+			loggln(LOG_ERROR, "[error] %s: %s", strkaderr(err), curl_multi_strerror(code));
+		}
 	
 	return NULL;
 	

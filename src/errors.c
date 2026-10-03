@@ -71,6 +71,8 @@ const char* strkaderr(const int code) {
 			return "Cannot receive data on SSL socket";
 		case KADERR_SSL_SEND_FAILURE:
 			return "Cannot send data on SSL socket";
+		case KADERR_CURL_GETINFO_FAILURE:
+			return "Could not get info about HTTP transfer";
 	}
 	
 	return "Unknown error";
