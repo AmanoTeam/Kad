@@ -86,7 +86,9 @@ set(
 	zlib
 	crypto
 	ssl
+	ngtcp2
 	nghttp2
+	nghttp3
 	brotlicommon
 	brotlidec
 	c-ares
