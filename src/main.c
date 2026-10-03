@@ -67,6 +67,8 @@ static const char* const IMPERSONATE_HEADERS[] = {
 
 static int fd = 0;
 
+static CURLM* curl_multi = NULL;
+
 static void sigint_handler(void) {
 	
 	close(fd);
@@ -164,7 +166,7 @@ static int load_ssl_certificates(void) {
 
 static int request_handler(void* pointer) {
 	
-	int fd __close__ = *(int*) pointer;
+	int fd = *(int*) pointer;
 	
 	ssl_context_t context __ssl_close__ = {0};
 	
@@ -420,6 +422,9 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
+	curl_multi_add_handle(curl_multi, curl);
+	
+	/*
 	const CURLcode status = curl_easy_perform(curl);
 	
 	if (status != CURLE_OK) {
@@ -430,6 +435,7 @@ static int request_handler(void* pointer) {
 	}
 	
 	return KADERR_SUCCESS;
+	*/
 	
 }
 
@@ -459,6 +465,8 @@ int main(int argc, char* argv[]) {
 	const struct sigaction sigpipe_action = {
 		.sa_handler = SIG_IGN
 	};
+	
+	curl_multi = curl_multi_init();
 	
 	if (sigaction(SIGPIPE, &sigpipe_action, NULL) == -1) {
 		const system_error_t error = get_system_error();

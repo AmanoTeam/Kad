@@ -22,8 +22,6 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 	size_t offset = 0;
 	const size_t requested = size * nmemb;
 	
-	// drain the body fragment buffered during request parsing
-	
 	if (data->request->body.size > 0) {
 		size_t buffered = data->request->body.size;
 		
@@ -43,8 +41,6 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 		offset += buffered;
 		data->remaining -= buffered;
 	}
-	
-	// stream the rest of the body from the client socket
 	
 	while (data->remaining > 0 && offset < requested) {
 		char chunk[MAX_CHUNK_SIZE];
