@@ -5,7 +5,7 @@ project(
 	VERSION 0.2
 	DESCRIPTION "Kad is a simple HTTP proxy server that forwards all requests through curl-impersonate"
 	HOMEPAGE_URL "https://github.com/AmanoTeam/Kad"
-	LANGUAGES C
+	LANGUAGES C CXX
 )
 
 option(KAD_LTO "Turn on compiler link-time optimizations" OFF)
@@ -532,12 +532,17 @@ else()
 	)
 endif()
 
+set_target_properties(
+	kad
+	PROPERTIES
+	LINKER_LANGUAGE CXX
+)
+
 if (KAD_STATIC)
 	target_link_options(
 		kad
-		BEFORE
 		PRIVATE
-		-lstdc++ -static-libstdc++ -static-libgcc
+		-static-libstdc++ -static-libgcc
 	)
 endif()
 
