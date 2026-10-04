@@ -14,10 +14,24 @@ option(KAD_SSL_VERIFY "Enable SSL certificate verification in libcurl" ON)
 option(KAD_ASAN "Build with AddressSanitizer" OFF)
 option(KAD_PROFILE "Build with gprof instrumentation (-pg)" OFF)
 option(KAD_BUILD_SHARED "Build the project as a shared library" OFF)
+option(KAD_STATIC_DEPS "Build all dependencies as static libraries, embedding them into the produced shared libraries" OFF)
+
+if (KAD_STATIC_DEPS)
+	set(KAD_LIBRARY_PREFIX "${CMAKE_STATIC_LIBRARY_PREFIX}")
+	set(KAD_LIBRARY_SUFFIX "${CMAKE_STATIC_LIBRARY_SUFFIX}")
+	
+	set(KAD_CURL_LIBRARY "libcurl_static")
+else()
+	set(KAD_LIBRARY_PREFIX "${CMAKE_SHARED_LIBRARY_PREFIX}")
+	set(KAD_LIBRARY_SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}")
+	
+	set(KAD_CURL_LIBRARY "libcurl_shared")
+endif()
 
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0126 NEW)
 
 set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
 
@@ -43,6 +57,7 @@ set(BROTLI_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/brotli")
 set(CARES_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/c-ares")
 set(CURL_IMPERSONATE_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/curl-impersonate")
 set(PICOHTTPPARSER_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/picohttpparser")
+set(ZSTD_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/zstd")
 
 set(
 	INCLUDE_DIRECTORIES
@@ -84,33 +99,66 @@ set(
 )
 
 
-set(
-	TARGETS
-	kad
-	libcurl_shared
-	zlib
-	crypto
-	ssl
-	ngtcp2
-	nghttp2
-	nghttp3
-	brotlicommon
-	brotlidec
-	c-ares
-)
-
-set(
-	CURL_LIBRARY_DEPENDENCIES
-	zlib
-	crypto
-	ssl
-	nghttp2
-	ngtcp2
-	ngtcp2_crypto_boringssl_static
-	nghttp3
-	brotlidec
-	c-ares
-)
+if (KAD_STATIC_DEPS)
+	set(
+		TARGETS
+		kad
+		libcurl_static
+		zlibstatic
+		crypto
+		ssl
+		ngtcp2_static
+		nghttp2_static
+		nghttp3_static
+		libzstd_static
+		brotlidec
+		c-ares
+	)
+	
+	set(
+		CURL_LIBRARY_DEPENDENCIES
+		zlibstatic
+		crypto
+		ssl
+		nghttp2_static
+		ngtcp2_static
+		ngtcp2_crypto_boringssl_static
+		nghttp3_static
+		brotlidec
+		libzstd_static
+		c-ares
+	)
+else()
+	set(
+		TARGETS
+		kad
+		libcurl_shared
+		zlib
+		crypto
+		ssl
+		ngtcp2
+		nghttp2
+		nghttp3
+		brotlicommon
+		libzstd_shared
+		brotlidec
+		c-ares
+	)
+	
+	set(
+		CURL_LIBRARY_DEPENDENCIES
+		zlib
+		crypto
+		ssl
+		nghttp2
+		ngtcp2
+		ngtcp2_crypto_boringssl_static
+		nghttp3
+		brotlidec
+		libzstd_shared
+		c-ares
+	)
+endif()
 
 # curl
 set(PICKY_COMPILER OFF)
@@ -136,6 +184,8 @@ set(CURL_CA_PATH "none")
 set(CURL_WERROR OFF)
 set(CURL_DISABLE_DOH ON)
 
+set(CURL_ZSTD ON)
+
 if (WIN32)
 	set(ENABLE_UNICODE ON)
 endif()
@@ -143,8 +193,32 @@ endif()
 # nghttp2
 set(ENABLE_LIB_ONLY ON CACHE BOOL "")
 
+# zstd
+set(ZSTD_BUILD_PROGRAMS OFF)
+set(ZSTD_BUILD_TESTS OFF)
+
+if (KAD_STATIC_DEPS)
+	set(ZSTD_BUILD_STATIC ON)
+	set(ZSTD_BUILD_SHARED OFF)
+else()
+	set(ZSTD_BUILD_STATIC OFF)
+	set(ZSTD_BUILD_SHARED ON)
+endif()
+
 # BoringSSL
-set(BUILD_SHARED_LIBS ON)
+if (KAD_STATIC_DEPS)
+	set(BUILD_SHARED_LIBS OFF)
+	set(BUILD_STATIC_LIBS ON)
+	set(ZLIB_BUILD_SHARED OFF)
+	set(ZLIB_BUILD_STATIC ON)
+	set(ENABLE_SHARED_LIB OFF)
+	set(CARES_SHARED OFF)
+	set(CARES_STATIC ON)
+	set(CARES_STATIC_PIC ON)
+else()
+	set(BUILD_SHARED_LIBS ON)
+endif()
+
 set(BUILD_TESTING OFF)
 
 execute_process(
@@ -236,8 +310,8 @@ endif()
 
 set(OPENSSL_INCLUDE_DIR "${BORINGSSL_SOURCE_DIRECTORY}/include")
 
-set(OPENSSL_CRYPTO_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}crypto${CMAKE_SHARED_LIBRARY_SUFFIX}")
-set(OPENSSL_SSL_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}ssl${CMAKE_SHARED_LIBRARY_SUFFIX}")
+set(OPENSSL_CRYPTO_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}crypto${KAD_LIBRARY_SUFFIX}")
+set(OPENSSL_SSL_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}ssl${KAD_LIBRARY_SUFFIX}")
 
 file(WRITE "${OPENSSL_SSL_LIBRARY}" "")
 file(WRITE "${OPENSSL_CRYPTO_LIBRARY}" "")
@@ -248,7 +322,7 @@ set(
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp2/lib/includes"
 )
 
-set(NGHTTP2_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}nghttp2${CMAKE_SHARED_LIBRARY_SUFFIX}")
+set(NGHTTP2_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}nghttp2${KAD_LIBRARY_SUFFIX}")
 
 set(
 	ZLIB_INCLUDE_DIR
@@ -256,12 +330,19 @@ set(
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/zlib"
 )
 
-set(ZLIB_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}z${CMAKE_SHARED_LIBRARY_SUFFIX}")
+set(ZLIB_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}z${KAD_LIBRARY_SUFFIX}")
 
 set(BROTLI_INCLUDE_DIR "${BROTLI_SOURCE_DIRECTORY}/c/include")
 
-set(BROTLICOMMON_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}brotlicommon${CMAKE_SHARED_LIBRARY_SUFFIX}")
-set(BROTLIDEC_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}brotlidec${CMAKE_SHARED_LIBRARY_SUFFIX}")
+set(BROTLICOMMON_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}brotlicommon${KAD_LIBRARY_SUFFIX}")
+set(BROTLIDEC_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}brotlidec${KAD_LIBRARY_SUFFIX}")
+
+set(
+	ZSTD_INCLUDE_DIR
+	"${ZSTD_SOURCE_DIRECTORY}/lib"
+)
+
+set(ZSTD_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}zstd${KAD_LIBRARY_SUFFIX}")
 
 set(
 	CARES_INCLUDE_DIR
@@ -269,7 +350,7 @@ set(
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/c-ares"
 )
 
-set(CARES_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}cares${CMAKE_SHARED_LIBRARY_SUFFIX}")
+set(CARES_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}cares${KAD_LIBRARY_SUFFIX}")
 
 set(ENABLE_OPENSSL OFF)
 set(ENABLE_GNUTLS OFF)
@@ -291,7 +372,7 @@ set(
 	"${NGTCP2_SOURCE_DIRECTORY}/crypto/includes"
 )
 
-set(NGTCP2_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}ngtcp2${CMAKE_SHARED_LIBRARY_SUFFIX}")
+set(NGTCP2_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}ngtcp2${KAD_LIBRARY_SUFFIX}")
 
 set(NGTCP2_CRYPTO_BORINGSSL_LIBRARY "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}/${CMAKE_STATIC_LIBRARY_PREFIX}ngtcp2_crypto_boringssl${CMAKE_STATIC_LIBRARY_SUFFIX}")
 
@@ -301,11 +382,12 @@ set(
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp3/lib/includes"
 )
 
-set(NGHTTP3_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}nghttp3${CMAKE_SHARED_LIBRARY_SUFFIX}")
+set(NGHTTP3_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}nghttp3${KAD_LIBRARY_SUFFIX}")
 
 file(WRITE "${NGTCP2_LIBRARY}" "")
 file(WRITE "${NGTCP2_CRYPTO_BORINGSSL_LIBRARY}" "")
 file(WRITE "${NGHTTP3_LIBRARY}" "")
+file(WRITE "${ZSTD_LIBRARY}" "")
 
 file(MAKE_DIRECTORY
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/zlib"
@@ -363,11 +445,32 @@ add_subdirectory(
 	EXCLUDE_FROM_ALL
 )
 
+add_subdirectory(
+	"${ZSTD_SOURCE_DIRECTORY}/build/cmake"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/zstd"
+	EXCLUDE_FROM_ALL
+)
+
+if (KAD_STATIC_DEPS)
+	target_compile_definitions(
+		libzstd_static
+		PRIVATE
+		ZDICT_QSORT=ZDICT_QSORT_MIN
+	)
+else()
+	target_compile_definitions(
+		libzstd_shared
+		PRIVATE
+		ZDICT_QSORT=ZDICT_QSORT_MIN
+	)
+endif()
+
 file(REMOVE "${OPENSSL_SSL_LIBRARY}")
 file(REMOVE "${OPENSSL_CRYPTO_LIBRARY}")
 file(REMOVE "${NGTCP2_LIBRARY}")
 file(REMOVE "${NGTCP2_CRYPTO_BORINGSSL_LIBRARY}")
 file(REMOVE "${NGHTTP3_LIBRARY}")
+file(REMOVE "${ZSTD_LIBRARY}")
 
 foreach(target ${CURL_LIBRARY_DEPENDENCIES})
 	add_custom_command(
@@ -380,7 +483,7 @@ foreach(target ${CURL_LIBRARY_DEPENDENCIES})
 	)
 
 	add_dependencies(
-		libcurl_shared
+		${KAD_CURL_LIBRARY}
 		"ensure_${target}"
 	)
 endforeach()
@@ -537,16 +640,18 @@ find_package(Threads REQUIRED)
 
 target_link_libraries(
 	kad
+	PRIVATE
 	Threads::Threads
 	ssl
 	crypto
-	libcurl_shared
+	${KAD_CURL_LIBRARY}
 )
 
 install(
 	TARGETS ${TARGETS}
 	RUNTIME DESTINATION bin
 	LIBRARY DESTINATION lib
+	ARCHIVE DESTINATION lib
 )
 
 install(

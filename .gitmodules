@@ -31,3 +31,6 @@
 [submodule "submodules/nghttp3"]
 	path = submodules/nghttp3
 	url = https://github.com/ngtcp2/nghttp3
+[submodule "submodules/zstd"]
+	path = submodules/zstd
+	url = https://github.com/facebook/zstd
