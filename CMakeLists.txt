@@ -323,7 +323,7 @@ if (NOT EXISTS "${NGHTTP3_SOURCE_DIRECTORY}/.patched")
 	file(WRITE "${NGHTTP3_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
-file(LOCK "${CMAKE_CURRENT_SOURCE_DIR}/lock" FILE RELEASE)
+file(LOCK "${CMAKE_CURRENT_SOURCE_DIR}/lock" RELEASE)
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
 	add_compile_options($<$<CONFIG:Release>:-fipa-pta>)
