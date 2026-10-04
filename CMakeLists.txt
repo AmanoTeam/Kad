@@ -13,10 +13,10 @@ option(KAD_UNICODE "Enable Unicode support for Windows builds" ON)
 option(KAD_SSL_VERIFY "Enable SSL certificate verification in libcurl" ON)
 option(KAD_ASAN "Build with AddressSanitizer" OFF)
 option(KAD_PROFILE "Build with gprof instrumentation (-pg)" OFF)
-option(KAD_BUILD_SHARED "Build the project as a shared library" OFF)
-option(KAD_STATIC_DEPS "Build all dependencies as static libraries, embedding them into the produced shared libraries" OFF)
+option(KAD_LIBRARY "Build the project as a shared library" OFF)
+option(KAD_STATIC "Build all dependencies as static libraries" OFF)
 
-if (KAD_STATIC_DEPS)
+if (KAD_STATIC)
 	set(KAD_LIBRARY_PREFIX "${CMAKE_STATIC_LIBRARY_PREFIX}")
 	set(KAD_LIBRARY_SUFFIX "${CMAKE_STATIC_LIBRARY_SUFFIX}")
 	
@@ -99,7 +99,7 @@ set(
 )
 
 
-if (KAD_STATIC_DEPS)
+if (KAD_STATIC)
 	set(
 		TARGETS
 		kad
@@ -197,7 +197,7 @@ set(ENABLE_LIB_ONLY ON CACHE BOOL "")
 set(ZSTD_BUILD_PROGRAMS OFF)
 set(ZSTD_BUILD_TESTS OFF)
 
-if (KAD_STATIC_DEPS)
+if (KAD_STATIC)
 	set(ZSTD_BUILD_STATIC ON)
 	set(ZSTD_BUILD_SHARED OFF)
 else()
@@ -206,7 +206,7 @@ else()
 endif()
 
 # BoringSSL
-if (KAD_STATIC_DEPS)
+if (KAD_STATIC)
 	set(BUILD_SHARED_LIBS OFF)
 	set(BUILD_STATIC_LIBS ON)
 	set(ZLIB_BUILD_SHARED OFF)
@@ -451,20 +451,6 @@ add_subdirectory(
 	EXCLUDE_FROM_ALL
 )
 
-if (KAD_STATIC_DEPS)
-	target_compile_definitions(
-		libzstd_static
-		PRIVATE
-		ZDICT_QSORT=ZDICT_QSORT_MIN
-	)
-else()
-	target_compile_definitions(
-		libzstd_shared
-		PRIVATE
-		ZDICT_QSORT=ZDICT_QSORT_MIN
-	)
-endif()
-
 file(REMOVE "${OPENSSL_SSL_LIBRARY}")
 file(REMOVE "${OPENSSL_CRYPTO_LIBRARY}")
 file(REMOVE "${NGTCP2_LIBRARY}")
@@ -490,7 +476,7 @@ endforeach()
 
 include_directories(${INCLUDE_DIRECTORIES})
 
-if (KAD_BUILD_SHARED)
+if (KAD_LIBRARY)
 	add_library(
 		kad
 		SHARED
@@ -500,7 +486,7 @@ if (KAD_BUILD_SHARED)
 	target_compile_definitions(
 		kad
 		PRIVATE
-		KAD_BUILD_SHARED
+		KAD_LIBRARY
 	)
 	
 	add_library(
@@ -621,7 +607,7 @@ if (KAD_PROFILE)
 		-pg
 	)
 	
-	if (NOT KAD_BUILD_SHARED)
+	if (NOT KAD_LIBRARY)
 		target_link_options(
 			kad
 			PRIVATE
