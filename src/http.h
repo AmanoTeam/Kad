@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include "query.h"
+
 enum HTTPMethod {
 	GET = 1,
 	HEAD = 2,
@@ -97,22 +99,6 @@ typedef enum HTTPMethod http_method_t;
 typedef enum HTTPVersion http_version_t;
 typedef enum HTTPStatusCode http_status_code_t;
 
-struct HTTPHeader {
-	char* key;
-	char* value;
-};
-
-typedef struct HTTPHeader http_header_t;
-
-struct HTTPHeaders {
-	size_t offset;
-	size_t capacity;
-	struct HTTPHeader* items;
-	size_t slength;
-};
-
-typedef struct HTTPHeaders http_headers_t;
-
 struct HTTPBody {
 	size_t size;
 	char* content;
@@ -125,7 +111,7 @@ struct HTTPResponse {
 	http_status_code_t status;
 	http_version_t version;
 	http_method_t method;
-	http_headers_t headers;
+	hquery_t headers;
 	http_body_t body;
 	char* uri;
 	const char* ptr;
@@ -138,7 +124,7 @@ struct HTTPRequest {
 	http_status_code_t status;
 	http_version_t version;
 	http_method_t method;
-	http_headers_t headers;
+	hquery_t headers;
 	http_body_t body;
 	char* uri;
 	const char* ptr;
@@ -151,7 +137,7 @@ struct HTTPObject {
 	http_status_code_t status;
 	http_version_t version;
 	http_method_t method;
-	http_headers_t headers;
+	hquery_t headers;
 	http_body_t body;
 	char* uri;
 	const char* ptr;
@@ -163,8 +149,8 @@ const char* http_method_stringify(const http_method_t method);
 const char* http_version_stringify(const http_version_t version);
 const char* http_status_stringify(const http_status_code_t status_code);
 
-int http_headers_add(http_headers_t* const headers, const char* key, const size_t key_size, const char* value, const size_t value_size);
-const http_header_t* http_headers_get(const http_headers_t* const headers, const char* key);
+int http_headers_add(hquery_t* const headers, const char* key, const size_t key_size, const char* value, const size_t value_size);
+hquery_param_t* http_headers_get(hquery_t* const headers, const char* key);
 
 int http_request_parse(http_request_t* const request, const char* const buffer, const size_t size);
 int http_response_parse(http_response_t* const response, const char* const buffer, const size_t size);

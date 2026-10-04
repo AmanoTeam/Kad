@@ -256,96 +256,81 @@ const char* http_status_stringify(const http_status_code_t status_code) {
 	
 }
 
-int http_headers_add(http_headers_t* const headers, const char* key, const size_t key_size, const char* value, const size_t value_size) {
+int http_headers_add(hquery_t* const headers, const char* key, const size_t key_size, const char* value, const size_t value_size) {
 	
-	int status = 0;
+	int status = KADERR_SUCCESS;
 	
-	http_header_t header = {NULL, NULL};
+	hquery_param_t parameter = {NULL, NULL};
+	
+	hquery_param_t* parameters = NULL;
 	
 	size_t size = 0;
-	http_header_t* items = NULL;
 	
-	if (headers->offset < headers->capacity) {
-		items = headers->items;
-	} else {
-		size = ((headers->capacity == 0) ? 8 : (headers->capacity * 2));
+	if (sizeof(parameter) * (headers->offset + 1) > headers->size) {
+		size = headers->size + (sizeof(parameter) * (headers->offset + 1));
 		
-		items = (http_header_t*) realloc(headers->items, (size * sizeof(http_header_t)));
+		parameters = (hquery_param_t*) realloc(headers->parameters, size);
 		
-		if (items == NULL) {
+		if (parameters == NULL) {
 			status = KADERR_MEMORY_ALLOCATE_FAILURE;
 			goto end;
 		}
 		
-		headers->capacity = size;
-		headers->items = items;
+		headers->size = size;
+		headers->parameters = parameters;
 	}
 	
-	header.key = malloc(key_size + value_size + 2);
+	parameter.key = malloc(key_size + 1);
 	
-	if (header.key == NULL) {
+	if (parameter.key == NULL) {
 		status = KADERR_MEMORY_ALLOCATE_FAILURE;
 		goto end;
 	}
 	
-	memcpy(header.key, ((key == NULL) ? "" : key), key_size);
-	header.key[key_size] = '\0';
+	memcpy(parameter.key, ((key == NULL) ? "" : key), key_size);
+	parameter.key[key_size] = '\0';
 	
-	header.value = (header.key + key_size + 1);
+	parameter.value = malloc(value_size + 1);
 	
-	memcpy(header.value, ((value == NULL) ? "" : value), value_size);
-	header.value[value_size] = '\0';
+	if (parameter.value == NULL) {
+		status = KADERR_MEMORY_ALLOCATE_FAILURE;
+		goto end;
+	}
 	
-	headers->items[headers->offset++] = header;
+	memcpy(parameter.value, ((value == NULL) ? "" : value), value_size);
+	parameter.value[value_size] = '\0';
+	
+	headers->parameters[headers->offset++] = parameter;
 	
 	end:;
 	
 	if (status != KADERR_SUCCESS) {
-		free(header.key);
-		header.key = NULL;
+		free(parameter.key);
+		parameter.key = NULL;
+		
+		free(parameter.value);
+		parameter.value = NULL;
 	}
 	
 	return status;
 	
 }
 
-static int http_headers_reserve(http_headers_t* const headers, const size_t count) {
-	
-	int status = 0;
-	
-	http_header_t* items = NULL;
-	
-	if (headers->capacity >= count) {
-		return status;
-	}
-	
-	items = (http_header_t*) realloc(headers->items, (count * sizeof(http_header_t)));
-	
-	if (items == NULL) {
-		status = KADERR_MEMORY_ALLOCATE_FAILURE;
-		goto end;
-	}
-	
-	headers->capacity = count;
-	headers->items = items;
-	
-	end:;
-	
-	return status;
-	
-}
-
-const http_header_t* http_headers_get(const http_headers_t* const headers, const char* key) {
+hquery_param_t* http_headers_get(hquery_t* const headers, const char* key) {
 	
 	size_t index = 0;
 	
-	const http_header_t* header = NULL;
+	hquery_param_t* parameter = NULL;
+	
+	if (key == NULL) {
+		return NULL;
+	}
 	
 	for (index = 0; index < headers->offset; index++) {
-		header = &headers->items[index];
+		parameter = &headers->parameters[index];
 		
-		if (strcasecmp(header->key, key) == 0) {
-			return header;
+		if (strcasecmp(parameter->key, key) == 0) {
+			return parameter;
 		}
 	}
 	
@@ -475,14 +460,6 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	
 	code = KADERR_SUCCESS;
 	
-	code = http_headers_reserve(&object->headers, headers_count);
-	
-	if (code != KADERR_SUCCESS) {
-		goto end;
-	}
-	
-	code = KADERR_SUCCESS;
-	
 	switch (minor_version) {
 		case 0: {
 			object->version = HTTP10;
@@ -566,33 +543,6 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	
 }
 
-static void http_headers_free(http_headers_t* const headers) {
-	
-	size_t index = 0;
-	
-	http_header_t* header = NULL;
-	
-	if (headers->items == NULL) {
-		return;
-	}
-	
-	for (index = 0; index < headers->offset; index++) {
-		header = &headers->items[index];
-		
-		free(header->key);
-		header->key = NULL;
-		
-		header->value = NULL;
-	}
-	
-	free(headers->items);
-	headers->items = NULL;
-	
-	headers->offset = 0;
-	headers->capacity = 0;
-	
-}
-
 static void http_body_free(http_body_t* const body) {
 	
 	if (body->size < 1) {
@@ -619,7 +569,7 @@ void http_object_free(http_object_t* const object) {
 	object->version = (enum HTTPVersion) 0;
 	object->method = (http_method_t) 0;
 	
-	http_headers_free(&object->headers);
+	query_free(&object->headers);
 	http_body_free(&object->body);
 	
 	free(object->uri);

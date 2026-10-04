@@ -340,7 +340,7 @@ static int request_handler(void* pointer) {
 	
 	transferdata_t* data __transferdata_close__ = NULL;
 	
-	const http_header_t* header = NULL;
+	hquery_param_t* header = NULL;
 	
 	char* hostname = NULL;
 	char* uri = NULL;
@@ -550,7 +550,7 @@ static int request_handler(void* pointer) {
 	}
 	
 	for (index = 0; index < data->request.headers.offset; index++) {
-		header = &data->request.headers.items[index];
+		header = &data->request.headers.parameters[index];
 		
 		status = 0;
 		

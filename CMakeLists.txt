@@ -90,6 +90,7 @@ set(
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/strsub.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/urlencode.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/urldecode.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/query.c"
 	"${PICOHTTPPARSER_SOURCE_DIRECTORY}/picohttpparser.c"
 )
 

@@ -116,9 +116,9 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 	const char* http_version = NULL;
 	const char* message = NULL;
 	
-	const http_header_t* header = NULL;
-	const http_header_t* item = NULL;
-	const http_header_t* subitem = NULL;
+	hquery_param_t* header = NULL;
+	hquery_param_t* item = NULL;
+	hquery_param_t* subitem = NULL;
 	
 	char* line = NULL;
 	char* start = NULL;
@@ -204,7 +204,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		}
 		
 		for (index = 0; index < response.headers.offset; index++) {
-			header = &response.headers.items[index];
+			header = &response.headers.parameters[index];
 			
 			/* cURL already performs content decoding, so there is no need for these headers */
 			if (strcasecmp(header->key, "Content-Encoding") == 0) {
