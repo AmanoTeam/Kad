@@ -532,6 +532,16 @@ else()
 	)
 endif()
 
+if (KAD_STATIC)
+	target_link_options(
+		kad
+		BEFORE
+		PRIVATE
+		-lstdc++ -static-libstdc++ -static-libgcc
+	)
+endif()
+
+
 if (NOT KAD_SSL_VERIFY)
 	target_compile_definitions(
 		kad
@@ -558,15 +568,6 @@ if (WIN32 AND KAD_UNICODE)
 		BEFORE
 		PRIVATE
 		-municode
-	)
-endif()
-
-if (KAD_STATIC)
-	target_link_options(
-		kad
-		BEFORE
-		PRIVATE
-		-static-libstdc++ -static-libgcc
 	)
 endif()
 
