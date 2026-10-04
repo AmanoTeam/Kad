@@ -161,6 +161,10 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		
 		http_version = http_version_stringify(HTTP10);
 		message = http_status_stringify(response.status);
+
+		if (message == NULL) {
+			message = "Unknown";
+		}
 		
 		sprintf(status_code, "%i", (int) response.status);
 		
