@@ -80,6 +80,10 @@ static void sigint_handler(void) {
 
 static char target_impersonate[64] = {0};
 
+static char proxy_url[4096] = {0};
+
+static char doh_url[4096] = {0};
+
 #if !defined(KAD_DISABLE_SSL_VERIFY)
 static int load_ssl_certificates(void) {
 	/*
@@ -467,6 +471,16 @@ static int request_handler(void* pointer) {
 		goto end;
 	}
 
+	if (*proxy_url != '\0' && curl_easy_setopt(curl, CURLOPT_PROXY, proxy_url) != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
+
+	if (*doh_url != '\0' && curl_easy_setopt(curl, CURLOPT_DOH_URL, doh_url) != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
+
 	#if defined(__ANDROID__)
 		if (curl_easy_setopt(curl, CURLOPT_DNS_SERVERS, "8.8.8.8,8.8.4.4") != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
@@ -480,7 +494,30 @@ static int request_handler(void* pointer) {
 	}
 	
 	#if defined(KAD_DISABLE_SSL_VERIFY)
-		if (curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L) != CURLE_OK) {
+		value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+
+		if (value != CURLE_OK) {
+			err = KADERR_CURL_SETOPT_FAILURE;
+			goto end;
+		}
+
+		value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+		if (value != CURLE_OK) {
+			err = KADERR_CURL_SETOPT_FAILURE;
+			goto end;
+		}
+
+		value = curl_easy_setopt(curl, CURLOPT_DOH_SSL_VERIFYPEER, 0L);
+
+		if (value != CURLE_OK) {
+			err = KADERR_CURL_SETOPT_FAILURE;
+			goto end;
+		}
+
+		value = curl_easy_setopt(curl, CURLOPT_DOH_SSL_VERIFYHOST, 0L);
+
+		if (value != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
 		}
@@ -500,7 +537,12 @@ static int request_handler(void* pointer) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
+	if (loglevel_get() == LOG_VERBOSE) {
+		curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+	}
+
+
 	/* Advertise all compression algorithms supported by curl and let it transparently decode the response body */
 	if (curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "") != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
@@ -884,6 +926,46 @@ int kad_main(int argc, char* argv[]) {
 			}
 			
 			strcpy(loglevel, argument->value);
+		} else if (strcmp(argument->key, "proxy") == 0 || strcmp(argument->key, "proxy-url") == 0) {
+			if (argument->value == NULL) {
+				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			size = strlen(argument->value);
+
+			if (size > (sizeof(proxy_url) - 1)) {
+				loggln(LOG_ERROR, "[error] proxy url exceeds max buffer size: %s", argument->value);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			strcpy(proxy_url, argument->value);
+		} else if (strcmp(argument->key, "doh-url") == 0) {
+			if (argument->value == NULL) {
+				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			size = strlen(argument->value);
+
+			if (size > (sizeof(doh_url) - 1)) {
+				loggln(LOG_ERROR, "[error] doh url exceeds max buffer size: %s", argument->value);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			strcpy(doh_url, argument->value);
 		} else if (strcmp(argument->key, "v") == 0 || strcmp(argument->key, "version") == 0) {
 			argparse_free(&argparse);
 			

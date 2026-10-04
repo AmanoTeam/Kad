@@ -183,7 +183,6 @@ set(CURL_USE_LIBSSH2 OFF)
 set(CURL_CA_BUNDLE "none")
 set(CURL_CA_PATH "none")
 set(CURL_WERROR OFF)
-set(CURL_DISABLE_DOH ON)
 
 set(CURL_ZSTD ON)
 
@@ -264,6 +263,20 @@ if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.patched")
 	)
 
 	file(WRITE "${CURL_SOURCE_DIRECTORY}/.patched" "")
+endif()
+
+if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.android-patched")
+	message("-- Patching cURL for Android")
+
+	execute_process(
+		COMMAND patch
+		--directory=${CURL_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CMAKE_CURRENT_SOURCE_DIR}/patches/android.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+
+	file(WRITE "${CURL_SOURCE_DIRECTORY}/.android-patched" "")
 endif()
 
 if (NOT EXISTS "${BORINGSSL_SOURCE_DIRECTORY}/.patched")
