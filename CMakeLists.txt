@@ -78,6 +78,11 @@ set(
 	"${PICOHTTPPARSER_SOURCE_DIRECTORY}/picohttpparser.c"
 )
 
+set(
+	KAD_JNI_SOURCE_FILES
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/kad-jni.c"
+)
+
 
 set(
 	TARGETS
@@ -394,6 +399,43 @@ if (KAD_BUILD_SHARED)
 		PRIVATE
 		KAD_BUILD_SHARED
 	)
+	
+	add_library(
+		kad-jni
+		SHARED
+		${KAD_JNI_SOURCE_FILES}
+	)
+	
+	target_link_libraries(
+		kad-jni
+		PRIVATE
+		kad
+	)
+	
+	set_target_properties(
+		kad-jni
+		PROPERTIES
+		BUILD_RPATH "$ORIGIN"
+	)
+	
+	list(APPEND TARGETS kad-jni)
+	
+	if (NOT ANDROID AND DEFINED ENV{JAVA_HOME})
+		set(KAD_JNI_PLATFORM "linux")
+		
+		if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+			set(KAD_JNI_PLATFORM "darwin")
+		elseif (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+			set(KAD_JNI_PLATFORM "win32")
+		endif()
+		
+		target_include_directories(
+			kad-jni
+			PRIVATE
+			"$ENV{JAVA_HOME}/include"
+			"$ENV{JAVA_HOME}/include/${KAD_JNI_PLATFORM}"
+		)
+	endif()
 else()
 	add_executable(
 		kad
