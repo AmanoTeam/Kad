@@ -224,6 +224,8 @@ set(ZLIB_BUILD_TESTING OFF)
 
 set(BUILD_TESTING OFF)
 
+file(LOCK "${CMAKE_CURRENT_SOURCE_DIR}")
+
 execute_process(
 	COMMAND git submodule update --init --depth=1
 	WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -320,6 +322,8 @@ if (NOT EXISTS "${NGHTTP3_SOURCE_DIRECTORY}/.patched")
 	
 	file(WRITE "${NGHTTP3_SOURCE_DIRECTORY}/.patched" "")
 endif()
+
+file(LOCK "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY RELEASE)
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
 	add_compile_options($<$<CONFIG:Release>:-fipa-pta>)
