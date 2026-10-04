@@ -153,12 +153,19 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		http_response_init(&response);
 		
 		code = http_response_parse(&response, data->buffer.s, data->buffer.slength);
-		
+
 		if (code != KADERR_SUCCESS) {
 			status = -1;
 			goto end;
 		}
-		
+
+		/* Kad serves a single request per connection, so work as if every response was HTTP/1.0
+		   close-delimited to keep clients from reusing the socket */
+		if (http_headers_add(&response.headers, "Connection", strlen("Connection"), "close", strlen("close")) != KADERR_SUCCESS) {
+			status = -1;
+			goto end;
+		}
+
 		http_version = http_version_stringify(HTTP10);
 		message = http_status_stringify(response.status);
 
@@ -223,8 +230,8 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 				}
 			}
 			
-			/* Kad doesn't support persistent connections, and the HTTP/1.0 protocol already assumes a short-lived connection by default */
-			if (strcasecmp(header->key, "Connection") == 0) {
+			/* Skip cURL's own connection header, but let ours ("close") through */
+			if (strcasecmp(header->key, "Connection") == 0 && strcasecmp(header->value, "close") != 0) {
 				continue;
 			}
 			
@@ -271,12 +278,12 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		}
 		
 		wsize = (data->is_secure) ? ssl_send(context, CRLF, strlen(CRLF)) : send(data->fd, CRLF, strlen(CRLF), 0);
-		
+
 		if (wsize == -1) {
 			status = -1;
 			goto end;
 		}
-		
+
 		buffer_free(&data->buffer);
 		
 		/* the request is no longer needed once its body has been fully forwarded */
