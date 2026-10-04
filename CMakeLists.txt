@@ -561,6 +561,15 @@ if (WIN32 AND KAD_UNICODE)
 	)
 endif()
 
+if (KAD_STATIC)
+	target_link_options(
+		kad
+		BEFORE
+		PRIVATE
+		-static-libstdc++ -static-libgcc
+	)
+endif()
+
 if (KAD_LTO)
 	set(KAD_HAS_LTO OFF)
 
