@@ -69,12 +69,14 @@ static int fd = 0;
 
 static CURLM* curl_multi = NULL;
 
+#if !defined(KAD_BUILD_SHARED)
 static void sigint_handler(void) {
 	
 	close(fd);
 	exit(EXIT_SUCCESS);
 	
 }
+#endif
 
 static char target_impersonate[64] = {0};
 
@@ -363,7 +365,6 @@ static int request_handler(void* pointer) {
 	CURLcode value = 0;
 	
 	const char* name = NULL;
-	const char* http_method = NULL;
 	
 	static char curl_error_message[CURL_ERROR_SIZE] = {0};
 	
@@ -421,8 +422,8 @@ static int request_handler(void* pointer) {
 		}
 		
 		hostname = data->request.uri;
-		data->request.uri = NULL;
 		
+		data->request.uri = NULL;
 		http_request_free(&data->request);
 		
 		err = http_request_parse(&data->request, buffer, (size_t) size);
@@ -619,8 +620,6 @@ static int request_handler(void* pointer) {
 		data->remaining = content_length;
 	}
 	
-	http_method = http_method_stringify(data->request.method);
-	
 	switch (data->request.method) {
 		case GET: {
 			value = curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
@@ -635,7 +634,8 @@ static int request_handler(void* pointer) {
 			break;
 		}
 		default: {
-			value = curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, http_method);
+			name = http_method_stringify(data->request.method);
+			value = curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, name);
 			break;
 		}
 	}
@@ -670,9 +670,11 @@ static int request_handler(void* pointer) {
 	pending->handle = curl;
 	
 	pthread_mutex_lock(&curl_pending_mutex);
+	
 	pending->next = curl_pending;
 	curl_pending = pending;
 	pending = NULL;
+	
 	pthread_mutex_unlock(&curl_pending_mutex);
 	
 	curl_multi_wakeup(curl_multi);
@@ -703,7 +705,7 @@ static void* handle_request(void* pointer) {
 	
 }
 
-int main(int argc, char* argv[]) {
+int kad_main(int argc, char* argv[]) {
 	/*
 	const struct sigaction action = {
 		.sa_handler = &sigint_handler
@@ -1048,3 +1050,11 @@ int main(int argc, char* argv[]) {
 	return EXIT_SUCCESS;
 	
 }
+
+#if !defined(KAD_BUILD_SHARED)
+int main(int argc, char* argv[]) {
+	
+	return kad_main(argc, argv);
+	
+}
+#endif

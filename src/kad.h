@@ -9,4 +9,6 @@
 
 #define KAD_DESCRIPTION PROGRAM_HELP
 
+int kad_main(int argc, char* argv[]);
+
 #endif

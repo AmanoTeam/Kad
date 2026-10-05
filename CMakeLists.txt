@@ -13,6 +13,7 @@ option(KAD_UNICODE "Enable Unicode support for Windows builds" ON)
 option(KAD_SSL_VERIFY "Enable SSL certificate verification in libcurl" ON)
 option(KAD_ASAN "Build with AddressSanitizer" OFF)
 option(KAD_PROFILE "Build with gprof instrumentation (-pg)" OFF)
+option(KAD_BUILD_SHARED "Build the project as a shared library" OFF)
 
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
@@ -75,6 +76,11 @@ set(
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/urlencode.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/urldecode.c"
 	"${PICOHTTPPARSER_SOURCE_DIRECTORY}/picohttpparser.c"
+)
+
+set(
+	KAD_JNI_SOURCE_FILES
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/kad-jni.c"
 )
 
 
@@ -382,10 +388,61 @@ endforeach()
 
 include_directories(${INCLUDE_DIRECTORIES})
 
-add_executable(
-	kad
-	${KAD_SOURCE_FILES}
-)
+if (KAD_BUILD_SHARED)
+	add_library(
+		kad
+		SHARED
+		${KAD_SOURCE_FILES}
+	)
+	
+	target_compile_definitions(
+		kad
+		PRIVATE
+		KAD_BUILD_SHARED
+	)
+	
+	add_library(
+		kad-jni
+		SHARED
+		${KAD_JNI_SOURCE_FILES}
+	)
+	
+	target_link_libraries(
+		kad-jni
+		PRIVATE
+		kad
+	)
+	
+	set_target_properties(
+		kad-jni
+		PROPERTIES
+		BUILD_RPATH "$ORIGIN"
+	)
+	
+	list(APPEND TARGETS kad-jni)
+	
+	if (NOT ANDROID AND DEFINED ENV{JAVA_HOME})
+		set(KAD_JNI_PLATFORM "linux")
+		
+		if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+			set(KAD_JNI_PLATFORM "darwin")
+		elseif (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+			set(KAD_JNI_PLATFORM "win32")
+		endif()
+		
+		target_include_directories(
+			kad-jni
+			PRIVATE
+			"$ENV{JAVA_HOME}/include"
+			"$ENV{JAVA_HOME}/include/${KAD_JNI_PLATFORM}"
+		)
+	endif()
+else()
+	add_executable(
+		kad
+		${KAD_SOURCE_FILES}
+	)
+endif()
 
 if (NOT KAD_SSL_VERIFY)
 	target_compile_definitions(
@@ -460,8 +517,15 @@ if (KAD_PROFILE)
 		kad
 		PRIVATE
 		-pg
-		-no-pie
 	)
+	
+	if (NOT KAD_BUILD_SHARED)
+		target_link_options(
+			kad
+			PRIVATE
+			-no-pie
+		)
+	endif()
 endif()
 
 target_compile_definitions(
