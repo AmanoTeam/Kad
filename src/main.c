@@ -497,7 +497,30 @@ static int request_handler(void* pointer) {
 	}
 	
 	#if defined(KAD_DISABLE_SSL_VERIFY)
-		if (curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L) != CURLE_OK) {
+		value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+
+		if (value != CURLE_OK) {
+			err = KADERR_CURL_SETOPT_FAILURE;
+			goto end;
+		}
+
+		value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+		if (value != CURLE_OK) {
+			err = KADERR_CURL_SETOPT_FAILURE;
+			goto end;
+		}
+
+		value = curl_easy_setopt(curl, CURLOPT_DOH_SSL_VERIFYPEER, 0L);
+
+		if (value != CURLE_OK) {
+			err = KADERR_CURL_SETOPT_FAILURE;
+			goto end;
+		}
+
+		value = curl_easy_setopt(curl, CURLOPT_DOH_SSL_VERIFYHOST, 0L);
+
+		if (value != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
 		}
