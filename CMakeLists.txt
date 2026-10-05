@@ -13,10 +13,10 @@ option(KAD_UNICODE "Enable Unicode support for Windows builds" ON)
 option(KAD_SSL_VERIFY "Enable SSL certificate verification in libcurl" ON)
 option(KAD_ASAN "Build with AddressSanitizer" OFF)
 option(KAD_PROFILE "Build with gprof instrumentation (-pg)" OFF)
-option(KAD_BUILD_SHARED "Build the project as a shared library" OFF)
-option(KAD_STATIC_DEPS "Build all dependencies as static libraries, embedding them into the produced shared libraries" OFF)
+option(KAD_LIBRARY "Build the project as a shared library" OFF)
+option(KAD_STATIC "Build all dependencies as static libraries" OFF)
 
-if (KAD_STATIC_DEPS)
+if (KAD_STATIC)
 	set(KAD_LIBRARY_PREFIX "${CMAKE_STATIC_LIBRARY_PREFIX}")
 	set(KAD_LIBRARY_SUFFIX "${CMAKE_STATIC_LIBRARY_SUFFIX}")
 	
@@ -99,7 +99,7 @@ set(
 )
 
 
-if (KAD_STATIC_DEPS)
+if (KAD_STATIC)
 	set(
 		TARGETS
 		kad
@@ -163,6 +163,7 @@ endif()
 # curl
 set(PICKY_COMPILER OFF)
 set(BUILD_CURL_EXE OFF)
+set(BUILD_EXAMPLES OFF)
 set(HTTP_ONLY ON)
 set(ENABLE_THREADED_RESOLVER OFF)
 set(CURL_USE_OPENSSL ON)
@@ -197,7 +198,7 @@ set(ENABLE_LIB_ONLY ON CACHE BOOL "")
 set(ZSTD_BUILD_PROGRAMS OFF)
 set(ZSTD_BUILD_TESTS OFF)
 
-if (KAD_STATIC_DEPS)
+if (KAD_STATIC)
 	set(ZSTD_BUILD_STATIC ON)
 	set(ZSTD_BUILD_SHARED OFF)
 else()
@@ -206,7 +207,7 @@ else()
 endif()
 
 # BoringSSL
-if (KAD_STATIC_DEPS)
+if (KAD_STATIC)
 	set(BUILD_SHARED_LIBS OFF)
 	set(BUILD_STATIC_LIBS ON)
 	set(ZLIB_BUILD_SHARED OFF)
@@ -218,6 +219,9 @@ if (KAD_STATIC_DEPS)
 else()
 	set(BUILD_SHARED_LIBS ON)
 endif()
+
+# zlib
+set(ZLIB_BUILD_TESTING OFF)
 
 set(BUILD_TESTING OFF)
 
@@ -452,20 +456,6 @@ add_subdirectory(
 	EXCLUDE_FROM_ALL
 )
 
-if (KAD_STATIC_DEPS)
-	target_compile_definitions(
-		libzstd_static
-		PRIVATE
-		ZDICT_QSORT=ZDICT_QSORT_MIN
-	)
-else()
-	target_compile_definitions(
-		libzstd_shared
-		PRIVATE
-		ZDICT_QSORT=ZDICT_QSORT_MIN
-	)
-endif()
-
 file(REMOVE "${OPENSSL_SSL_LIBRARY}")
 file(REMOVE "${OPENSSL_CRYPTO_LIBRARY}")
 file(REMOVE "${NGTCP2_LIBRARY}")
@@ -491,7 +481,7 @@ endforeach()
 
 include_directories(${INCLUDE_DIRECTORIES})
 
-if (KAD_BUILD_SHARED)
+if (KAD_LIBRARY)
 	add_library(
 		kad
 		SHARED
@@ -501,7 +491,7 @@ if (KAD_BUILD_SHARED)
 	target_compile_definitions(
 		kad
 		PRIVATE
-		KAD_BUILD_SHARED
+		KAD_LIBRARY
 	)
 	
 	add_library(
@@ -546,6 +536,16 @@ else()
 		${KAD_SOURCE_FILES}
 	)
 endif()
+
+if (KAD_STATIC)
+	target_link_options(
+		kad
+		BEFORE
+		PRIVATE
+		-lstdc++ -static-libstdc++ -static-libgcc
+	)
+endif()
+
 
 if (NOT KAD_SSL_VERIFY)
 	target_compile_definitions(
@@ -622,7 +622,7 @@ if (KAD_PROFILE)
 		-pg
 	)
 	
-	if (NOT KAD_BUILD_SHARED)
+	if (NOT KAD_LIBRARY)
 		target_link_options(
 			kad
 			PRIVATE
