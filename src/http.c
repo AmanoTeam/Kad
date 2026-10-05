@@ -55,6 +55,9 @@ const char* http_version_stringify(const http_version_t version) {
 		case HTTP2: {
 			return "2";
 		}
+		case HTTP3: {
+			return "3";
+		}
 	}
 	
 	return NULL;
@@ -423,10 +426,10 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	size_t headers_size = 0;
 	size_t body_size = 0;
 	
-	int is_http2 = 0;
-	
 	int status = 0;
 	int minor_version = -1;
+	
+	int upgraded = 0;
 	
 	int consumed = 0;
 	int code = 0;
@@ -438,8 +441,19 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	
 	headers_count = MAX_HTTP_HEADERS_COUNT;
 	
-	/* cURL reports HTTP/2 responses with an "HTTP/2 <code>" status line, which the parser doesn't understand, so we rewrite it as HTTP/1.1 and adjust for the 2 extra bytes later */
-	if (object->type == HTTP_RESPONSE && size > strlen("HTTP/2 ") && memcmp(buffer, "HTTP/2", strlen("HTTP/2")) == 0 && (buffer[strlen("HTTP/2")] == ' ' || buffer[strlen("HTTP/2")] == '\r')) {
+	index = 5;
+	
+	status = (
+		object->type == HTTP_RESPONSE &&
+		size > index + 1 &&
+		memcmp(buffer, "HTTP/", index) == 0 &&
+		(buffer[index] == '2' || buffer[index] == '3') &&
+		(buffer[index + 1] == ' ' || buffer[index + 1] == '\r')
+	);
+	
+	if (status) {
+		upgraded = (buffer[index] == '3') ? 3 : 2;
+		
 		patched_buffer = malloc(size + 2);
 		
 		if (patched_buffer == NULL) {
@@ -453,8 +467,6 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 		parse_buffer = patched_buffer;
 		parse_size = size + 2;
 		offset_delta = 2;
-		
-		is_http2 = 1;
 	}
 	
 	consumed = (
@@ -498,8 +510,10 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 		}
 	}
 	
-	if (is_http2) {
+	if (upgraded == 2) {
 		object->version = HTTP2;
+	} else if (upgraded == 3) {
+		object->version = HTTP3;
 	}
 	
 	if (code == KADERR_SUCCESS && object->type == HTTP_REQUEST) {

@@ -18,7 +18,8 @@ enum HTTPMethod {
 enum HTTPVersion {
 	HTTP10 = 1,
 	HTTP11 = 2,
-	HTTP2 = 3
+	HTTP2 = 3,
+	HTTP3 = 4
 };
 
 enum HTTPStatusCode {
