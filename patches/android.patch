@@ -1,0 +1,47 @@
+diff --git a/lib/vdns/asyn-ares.c b/lib/vdns/asyn-ares.c
+index dfb0875..72cbb85 100644
+--- a/lib/vdns/asyn-ares.c
++++ b/lib/vdns/asyn-ares.c
+@@ -162,6 +162,26 @@ static CURLcode async_ares_init(struct Curl_easy *data,
+     goto out;
+   }
+ 
++#if defined(__ANDROID__)
++  {
++    char *default_servers = NULL;
++
++    /* On Android, c-ares cannot obtain the system name servers, so fall
++       back to well-known public resolvers when nothing was configured. */
++    default_servers = ares_get_servers_csv(ares->channel);
++    if(default_servers == NULL || *default_servers == '\0') {
++      if(ares_set_servers_csv(ares->channel, "8.8.8.8,8.8.4.4") !=
++         ARES_SUCCESS) {
++        ares_free_string(default_servers);
++        result = CURLE_FAILED_INIT;
++        goto out;
++      }
++    }
++
++    ares_free_string(default_servers);
++  }
++#endif
++
+   result = async_ares_set_dns_servers(data, async);
+   if(result && result != CURLE_NOT_BUILT_IN)
+     goto out;
+diff --git a/lib/vdns/doh.c b/lib/vdns/doh.c
+index 3b52ed9..f88e732 100644
+--- a/lib/vdns/doh.c
++++ b/lib/vdns/doh.c
+@@ -286,6 +286,11 @@ static CURLcode doh_probe_run(struct Curl_easy *data,
+   VERBOSE(doh->state.feat = &Curl_trc_feat_doh);
+   ERROR_CHECK_SETOPT(CURLOPT_URL, url);
+   ERROR_CHECK_SETOPT(CURLOPT_DEFAULT_PROTOCOL, "https");
++#if defined(USE_ARES)
++  if(CURL_EASY_STR(data, STRING_DNS_SERVERS)) {
++    ERROR_CHECK_SETOPT(CURLOPT_DNS_SERVERS, CURL_EASY_STR(data, STRING_DNS_SERVERS));
++  }
++#endif
+   ERROR_CHECK_SETOPT(CURLOPT_WRITEFUNCTION, doh_probe_write_cb);
+   ERROR_CHECK_SETOPT(CURLOPT_WRITEDATA, doh);
+   ERROR_CHECK_SETOPT(CURLOPT_POSTFIELDS, doh_req->req_body);

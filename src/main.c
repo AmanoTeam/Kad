@@ -82,6 +82,8 @@ static char target_impersonate[64] = {0};
 
 static char proxy_url[4096] = {0};
 
+static char doh_url[4096] = {0};
+
 #if !defined(KAD_DISABLE_SSL_VERIFY)
 static int load_ssl_certificates(void) {
 	/*
@@ -474,6 +476,10 @@ static int request_handler(void* pointer) {
 		goto end;
 	}
 
+	if (*doh_url != '\0' && curl_easy_setopt(curl, CURLOPT_DOH_URL, doh_url) != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
 	
 	if (curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback_empty) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
@@ -915,6 +921,26 @@ int kad_main(int argc, char* argv[]) {
 			}
 
 			strcpy(proxy_url, argument->value);
+		} else if (strcmp(argument->key, "doh-url") == 0) {
+			if (argument->value == NULL) {
+				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			size = strlen(argument->value);
+
+			if (size > (sizeof(doh_url) - 1)) {
+				loggln(LOG_ERROR, "[error] doh url exceeds max buffer size: %s", argument->value);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			strcpy(doh_url, argument->value);
 		} else if (strcmp(argument->key, "v") == 0 || strcmp(argument->key, "version") == 0) {
 			argparse_free(&argparse);
 			
