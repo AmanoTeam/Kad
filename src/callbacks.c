@@ -223,6 +223,12 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		}
 		
 		buffer_free(&data->buffer);
+		
+		// the request is no longer needed once its body has been fully forwarded
+		
+		if (data->remaining == 0) {
+			http_request_free(data->request);
+		}
 	}
 	
 	return nitems * size;
