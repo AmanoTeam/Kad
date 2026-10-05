@@ -420,14 +420,8 @@ static int request_handler(void* pointer) {
 			goto end;
 		}
 		
-		hostname = malloc(strlen(data->request.uri) + 1);
-		
-		if (hostname == NULL) {
-			err = KADERR_MEMORY_ALLOCATE_FAILURE;
-			goto end;
-		}
-		
-		strcpy(hostname, data->request.uri);
+		hostname = data->request.uri;
+		data->request.uri = NULL;
 		
 		http_request_free(&data->request);
 		
@@ -452,7 +446,6 @@ static int request_handler(void* pointer) {
 		free(hostname);
 		hostname = NULL;
 		
-		free(data->request.uri);
 		data->request.uri = uri;
 		uri = NULL;
 	}

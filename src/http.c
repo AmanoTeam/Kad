@@ -256,7 +256,7 @@ const char* http_status_stringify(const http_status_code_t status_code) {
 	
 }
 
-int http_headers_add(http_headers_t* const headers, const char* key, const char* value) {
+int http_headers_add(http_headers_t* const headers, const char* key, const size_t key_size, const char* value, const size_t value_size) {
 	
 	int status = 0;
 	
@@ -265,49 +265,71 @@ int http_headers_add(http_headers_t* const headers, const char* key, const char*
 	size_t size = 0;
 	http_header_t* items = NULL;
 	
-	header.key = malloc(strlen(key) + 1);
-	header.value = malloc(strlen(value) + 1);
+	if (headers->offset < headers->capacity) {
+		items = headers->items;
+	} else {
+		size = ((headers->capacity == 0) ? 8 : (headers->capacity * 2));
+		
+		items = (http_header_t*) realloc(headers->items, (size * sizeof(http_header_t)));
+		
+		if (items == NULL) {
+			status = KADERR_MEMORY_ALLOCATE_FAILURE;
+			goto end;
+		}
+		
+		headers->capacity = size;
+		headers->items = items;
+	}
 	
-	if (header.key == NULL || header.value == NULL) {
+	header.key = malloc(key_size + value_size + 2);
+	
+	if (header.key == NULL) {
 		status = KADERR_MEMORY_ALLOCATE_FAILURE;
 		goto end;
 	}
 	
-	strcpy(header.key, key);
-	strcpy(header.value, value);
+	memcpy(header.key, ((key == NULL) ? "" : key), key_size);
+	header.key[key_size] = '\0';
 	
-	size = headers->size + sizeof(http_header_t) * 1;
-	items = (http_header_t*) realloc(headers->items, size);
+	header.value = (header.key + key_size + 1);
+	
+	memcpy(header.value, ((value == NULL) ? "" : value), value_size);
+	header.value[value_size] = '\0';
+	
+	headers->items[headers->offset++] = header;
+	
+	end:;
+	
+	if (status != KADERR_SUCCESS) {
+		free(header.key);
+		header.key = NULL;
+	}
+	
+	return status;
+	
+}
+
+static int http_headers_reserve(http_headers_t* const headers, const size_t count) {
+	
+	int status = 0;
+	
+	http_header_t* items = NULL;
+	
+	if (headers->capacity >= count) {
+		return status;
+	}
+	
+	items = (http_header_t*) realloc(headers->items, (count * sizeof(http_header_t)));
 	
 	if (items == NULL) {
 		status = KADERR_MEMORY_ALLOCATE_FAILURE;
 		goto end;
 	}
 	
-	headers->size = size;
+	headers->capacity = count;
 	headers->items = items;
-	headers->items[headers->offset++] = header;
-	
-	if (headers->slength > 0) {
-		headers->slength += strlen(CRLF);
-	}
-	
-	if (key != NULL) {
-		headers->slength += strlen(key);
-	}
-	
-	headers->slength += strlen(COLON) + strlen(SPACE);
-	
-	if (value != NULL) {
-		headers->slength += strlen(value);
-	}
 	
 	end:;
-	
-	if (status != KADERR_SUCCESS) {
-		free(header.key);
-		free(header.value);
-	}
 	
 	return status;
 	
@@ -353,44 +375,6 @@ static enum HTTPMethod http_method_from_string(const char* const method, const s
 	}
 	
 	return (http_method_t) 0;
-	
-}
-
-static int http_headers_add_slice(http_headers_t* const headers, const char* const key, const size_t key_size, const char* const value, const size_t value_size) {
-	
-	int status = 0;
-	
-	char* key_str = NULL;
-	char* value_str = NULL;
-	
-	key_str = malloc(key_size + 1);
-	
-	if (key_str == NULL) {
-		status = KADERR_MEMORY_ALLOCATE_FAILURE;
-		goto end;
-	}
-	
-	value_str = malloc(value_size + 1);
-	
-	if (value_str == NULL) {
-		status = KADERR_MEMORY_ALLOCATE_FAILURE;
-		goto end;
-	}
-	
-	memcpy(key_str, key, key_size);
-	key_str[key_size] = '\0';
-	
-	memcpy(value_str, value, value_size);
-	value_str[value_size] = '\0';
-	
-	status = http_headers_add(headers, key_str, value_str);
-	
-	end:;
-	
-	free(key_str);
-	free(value_str);
-	
-	return status;
 	
 }
 
@@ -491,6 +475,14 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	
 	code = KADERR_SUCCESS;
 	
+	code = http_headers_reserve(&object->headers, headers_count);
+	
+	if (code != KADERR_SUCCESS) {
+		goto end;
+	}
+	
+	code = KADERR_SUCCESS;
+	
 	switch (minor_version) {
 		case 0: {
 			object->version = HTTP10;
@@ -537,7 +529,7 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 		for (index = 0; index < headers_count; index++) {
 			const struct phr_header* const header = &headers[index];
 			
-			code = http_headers_add_slice(&object->headers, header->name, header->name_len, header->value, header->value_len);
+			code = http_headers_add(&object->headers, header->name, header->name_len, header->value, header->value_len);
 			
 			if (code != KADERR_SUCCESS) {
 				break;
@@ -580,29 +572,24 @@ static void http_headers_free(http_headers_t* const headers) {
 	
 	http_header_t* header = NULL;
 	
-	if (headers->size < 1) {
+	if (headers->items == NULL) {
 		return;
 	}
 	
 	for (index = 0; index < headers->offset; index++) {
 		header = &headers->items[index];
 		
-		if (header->key != NULL) {
-			free(header->key);
-			header->key = NULL;
-		}
+		free(header->key);
+		header->key = NULL;
 		
-		if (header->value != NULL) {
-			free(header->value);
-			header->value = NULL;
-		}
+		header->value = NULL;
 	}
 	
 	free(headers->items);
 	headers->items = NULL;
 	
-	headers->size = 0;
 	headers->offset = 0;
+	headers->capacity = 0;
 	
 }
 
