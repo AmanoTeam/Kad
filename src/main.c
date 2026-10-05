@@ -361,7 +361,21 @@ static int request_handler(void* pointer) {
 		}
 	}
 	
-	if (request.body.size > 0 || recv_size >= MAX_HTTP_HEADERS_SIZE) {
+	const http_header_t* const transfer_encoding = http_headers_get(&request.headers, "Transfer-Encoding");
+	
+	const int use_chunked = (transfer_encoding != NULL && strcmp(transfer_encoding->value, "chunked") == 0);
+	
+	size_t content_length = 0;
+	
+	if (!use_chunked) {
+		const http_header_t* const content_length_header = http_headers_get(&request.headers, "Content-Length");
+		
+		if (content_length_header != NULL) {
+			content_length = strtoull(content_length_header->value, NULL, 10);
+		}
+	}
+	
+	if (request.body.size > 0 || content_length > 0 || use_chunked || recv_size >= MAX_HTTP_HEADERS_SIZE) {
 		if (curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback) != CURLE_OK) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
@@ -370,21 +384,13 @@ static int request_handler(void* pointer) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
 		
-		const http_header_t* const item = http_headers_get(&request.headers, "Transfer-Encoding");
-		
-		const int use_chunked = (item != NULL && strcmp(item->value, "chunked") == 0);
-		
-		if (!use_chunked) {
-			const http_header_t* const item = http_headers_get(&request.headers, "Content-Length");
-			
-			if (item != NULL) {
-				const long int content_length = strtol(item->value, NULL, 10);
-				
-				if (curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, content_length) != CURLE_OK) {
-					return KADERR_CURL_SETOPT_FAILURE;
-				}
+		if (content_length > 0) {
+			if (curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long) content_length) != CURLE_OK) {
+				return KADERR_CURL_SETOPT_FAILURE;
 			}
 		}
+		
+		data.remaining = content_length;
 	}
 	
 	const char* const http_method = http_method_stringify(request.method);
