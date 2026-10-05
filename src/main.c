@@ -540,7 +540,12 @@ static int request_handler(void* pointer) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
+	if (loglevel_get() == LOG_VERBOSE) {
+		curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+	}
+
+
 	/* Advertise all compression algorithms supported by curl and let it transparently decode the response body */
 	if (curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "") != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
