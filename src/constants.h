@@ -19,9 +19,6 @@ static const char SPACE[] = " ";
 
 static const char HEADER_SEPARATOR[] = ": ";
 
-static const char HEADER_NAME_SAFE_SYMBOLS[] = "-_";
-static const char HEADER_VALUE_SAFE_SYMBOLS[] = "_ :;.,\\/\"'?!(){}[]@<>=-+*#$&`|~^%";
-
 static const int MAX_HTTP_HEADERS_SIZE = 10240;
 static const int MAX_CHUNK_SIZE = 1024 * 4;
 

@@ -1,42 +1,14 @@
 #include <stdlib.h>
-#include <ctype.h>
 #include <string.h>
+#include <strings.h>
+
+#include <picohttpparser.h>
 
 #include "http.h"
 #include "errors.h"
 #include "constants.h"
 
-static int header_name_safe(const char* const s) {
-	
-	for (size_t index = 0; index < strlen(s); index++) {
-		const char ch = s[index];
-		
-		const int is_safe = (isalnum(ch) || strchr(HEADER_NAME_SAFE_SYMBOLS, ch) != NULL);
-		
-		if (!is_safe) {
-			return is_safe;
-		}
-	}
-	
-	return 1;
-	
-}
-
-static int header_value_safe(const char* const s) {
-	
-	for (size_t index = 0; index < strlen(s); index++) {
-		const char ch = s[index];
-		
-		const int is_safe = (isalnum(ch) || strchr(HEADER_VALUE_SAFE_SYMBOLS, ch) != NULL);
-		
-		if (!is_safe) {
-			return is_safe;
-		}
-	}
-	
-	return 1;
-	
-}
+static const size_t MAX_HTTP_HEADERS_COUNT = 128;
 
 const char* http_method_stringify(const enum HTTPMethod method) {
 	
@@ -219,6 +191,9 @@ int http_headers_add(struct HTTPHeaders* const headers, const char* key, const c
 	};
 	
 	if (header.key == NULL || header.value == NULL) {
+		free(header.key);
+		free(header.value);
+		
 		return KADERR_MEMORY_ALLOCATE_FAILURE;
 	}
 	
@@ -229,6 +204,9 @@ int http_headers_add(struct HTTPHeaders* const headers, const char* key, const c
 	struct HTTPHeader* items = (struct HTTPHeader*) realloc(headers->items, size);
 	
 	if (items == NULL) {
+		free(header.key);
+		free(header.value);
+		
 		return KADERR_MEMORY_ALLOCATE_FAILURE;
 	}
 	
@@ -259,7 +237,7 @@ const struct HTTPHeader* http_headers_get(const struct HTTPHeaders* const header
 	for (size_t index = 0; index < headers->offset; index++) {
 		const struct HTTPHeader* header = &headers->items[index];
 		
-		if (strcmp(header->key, key) == 0) {
+		if (strcasecmp(header->key, key) == 0) {
 			return header;
 		}
 	}
@@ -268,247 +246,50 @@ const struct HTTPHeader* http_headers_get(const struct HTTPHeaders* const header
 	
 }
 
-int http_method_parse(struct HTTPObject* const object) {
+static enum HTTPMethod http_method_from_string(const char* const method, const size_t size) {
 	
-	if (object->type != HTTP_REQUEST) {
-		return KADERR_NOT_IMPLEMENTED;
+	static const char* const methods[] = {
+		"GET",
+		"HEAD",
+		"POST",
+		"PUT",
+		"DELETE",
+		"CONNECT",
+		"OPTIONS",
+		"TRACE"
+	};
+	
+	for (size_t index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
+		if (strlen(methods[index]) == size && memcmp(methods[index], method, size) == 0) {
+			return (enum HTTPMethod) (index + 1);
+		}
 	}
 	
-	const char* http_method_start = object->ptr;
-	const char* http_method_end = strstr(http_method_start, SPACE);
-	
-	if (http_method_end == NULL) {
-		return KADERR_HTTP_MALFORMED_HEADER;
-	}
-	
-	const size_t http_method_size = (size_t) (http_method_end - http_method_start);
-	
-	char http_method[http_method_size + 1];
-	memcpy(http_method, http_method_start, http_method_size);
-	http_method[http_method_size] = '\0';
-	
-	if (strcmp(http_method, "GET") == 0) {
-		object->method = GET;
-	} else if (strcmp(http_method, "HEAD") == 0) {
-		object->method = HEAD;
-	} else if (strcmp(http_method, "POST") == 0) {
-		object->method = POST;
-	} else if (strcmp(http_method, "PUT") == 0) {
-		object->method = PUT;
-	} else if (strcmp(http_method, "DELETE") == 0) {
-		object->method = DELETE;
-	} else if (strcmp(http_method, "CONNECT") == 0) {
-		object->method = CONNECT;
-	} else if (strcmp(http_method, "OPTIONS") == 0) {
-		object->method = OPTIONS;
-	} else if (strcmp(http_method, "TRACE") == 0) {
-		object->method = TRACE;
-	}
-	
-	if (object->method == 0) {
-		return KADERR_HTTP_UNKNOWN_METHOD;
-	}
-	
-	object->ptr = http_method_end;
-	
-	return KADERR_SUCCESS;
+	return (enum HTTPMethod) 0;
 	
 }
 
-int http_uri_parse(struct HTTPObject* const object) {
+static int http_headers_add_slice(struct HTTPHeaders* const headers, const char* const key, const size_t key_size, const char* const value, const size_t value_size) {
 	
-	if (object->type != HTTP_REQUEST) {
-		return KADERR_NOT_IMPLEMENTED;
-	}
+	char key_str[key_size + 1];
+	memcpy(key_str, key, key_size);
+	key_str[key_size] = '\0';
 	
-	const char* uri_start = object->ptr;
-	uri_start += strlen(SPACE);
-	const char* uri_end = strstr(uri_start, SPACE);
+	char value_str[value_size + 1];
+	memcpy(value_str, value, value_size);
+	value_str[value_size] = '\0';
 	
-	if (uri_end == NULL) {
-		return KADERR_HTTP_MALFORMED_HEADER;
-	}
-	
-	const size_t uri_size = (size_t) (uri_end - uri_start);
-	
-	object->uri = malloc(uri_size + 1);
-	
-	if (object->uri == NULL) {
-		return KADERR_MEMORY_ALLOCATE_FAILURE;
-	}
-	
-	memcpy(object->uri, uri_start, uri_size);
-	object->uri[uri_size] = '\0';
-	
-	object->ptr = uri_end;
-	
-	return KADERR_SUCCESS;
-	
-}
-
-int http_version_parse(struct HTTPObject* const object) {
-	
-	const char* http_version_start = strstr(object->ptr, SLASH);
-	
-	if (http_version_start == NULL) {
-		return KADERR_HTTP_MALFORMED_HEADER;
-	}
-	
-	http_version_start += strlen(SLASH);
-	
-	const char* http_version_end = strstr(http_version_start, object->type == HTTP_REQUEST ? CRLF : SPACE);
-	
-	if (http_version_end == NULL) {
-		return KADERR_HTTP_MALFORMED_HEADER;
-	}
-	
-	const size_t http_version_size = (size_t) (http_version_end - http_version_start);
-	
-	char http_version[http_version_size + 1];
-	memcpy(http_version, http_version_start, http_version_size);
-	http_version[http_version_size] = '\0';
-	
-	if (strcmp(http_version, "1.0") == 0) {
-		object->version = HTTP10;
-	} else if (strcmp(http_version, "1.1") == 0) {
-		object->version = HTTP11;
-	} else if (strcmp(http_version, "2") == 0) {
-		object->version = HTTP2;
-	}
-
-	if (object->version == 0) {
-		return KADERR_HTTP_UNSUPPORTED_VERSION;
-	}
-	
-	object->ptr = http_version_end;
-	
-	return KADERR_SUCCESS;
-	
-}
-
-int http_status_parse(struct HTTPObject* const object) {
-	
-	if (object->type != HTTP_RESPONSE) {
-		return KADERR_NOT_IMPLEMENTED;
-	}
-	
-	const char* http_status_start = strstr(object->ptr, SPACE);
-	
-	if (http_status_start == NULL) {
-		return KADERR_HTTP_MALFORMED_HEADER;
-	}
-	
-	http_status_start += strlen(SPACE);
-	
-	const char* http_status_end = strstr(http_status_start, object->version < HTTP2 ? SPACE : CRLF);
-	
-	if (http_status_end == NULL) {
-		return KADERR_HTTP_MALFORMED_HEADER;
-	}
-	
-	const size_t http_status_size = (size_t) (http_status_end - http_status_start);
-	
-	char http_status[http_status_size + 1];
-	memcpy(http_status, http_status_start, http_status_size);
-	http_status[http_status_size] = '\0';
-	
-	const long int status_code = strtol(http_status, NULL, 10);
-	object->status = (enum HTTPStatusCode) status_code;
-	
-	object->ptr = strstr(http_status_end, CRLF); // We don't care about the status message
-	
-	/*
-	if (object->ptr == NULL) {
-		return KADERR_HTTP_MALFORMED_HEADER;
-	}
-	*/
-	
-	return KADERR_SUCCESS;
-	
-}
-
-int http_headers_parse(struct HTTPObject* const object) {
-	
-	const char* header_start = object->ptr;
-	header_start += strlen(CRLF);
-	const char* header_end = strstr(header_start, CRLF);
-	
-	if (header_end == NULL) {
-		return KADERR_HTTP_MALFORMED_HEADER;
-	}
-	
-	const char* headers_end = strchr(header_start, '\0');
-	
-	if (headers_end == NULL) {
-		return KADERR_HTTP_MALFORMED_HEADER;
-	}
-	
-	while (1) {
-		if (!header_end) {
-			header_end = headers_end;
-		}
-		
-		const char* separator = strstr(header_start, HEADER_SEPARATOR);
-		
-		if (separator == NULL || separator > header_end) {
-			return KADERR_HTTP_MALFORMED_HEADER;
-		}
-		
-		const size_t key_size = (size_t) (separator - header_start);
-		
-		if (key_size < 1) {
-			return KADERR_HTTP_MISSING_HEADER_NAME;
-		}
-		
-		char key[key_size + 1];
-		memcpy(key, header_start, key_size);
-		key[key_size] = '\0';
-		
-		if (!header_name_safe(key)) {
-			return KADERR_HTTP_HEADER_CONTAINS_INVALID_CHARACTER;
-		}
-		
-		separator += strlen(HEADER_SEPARATOR);
-		
-		const size_t value_size = (size_t) (header_end - separator);
-		
-		if (value_size < 1) {
-			return KADERR_HTTP_MISSING_HEADER_VALUE;
-		}
-		
-		char value[value_size + 1];
-		memcpy(value, separator, value_size);
-		value[value_size] = '\0';
-		
-		if (!header_value_safe(value)) {
-			return KADERR_HTTP_HEADER_CONTAINS_INVALID_CHARACTER;
-		}
-		
-		const int code = http_headers_add(&object->headers, key, value);
-		
-		if (code != KADERR_SUCCESS) {
-			return code;
-		}
-		
-		if (header_end == headers_end) {
-			break;
-		}
-		
-		header_start = header_end;
-		header_start += strlen(CRLF);
-		
-		header_end = strstr(header_start, CRLF);
-	}
-	
-	return KADERR_SUCCESS;
+	return http_headers_add(headers, key_str, value_str);
 	
 }
 
 void http_request_init(struct HTTPRequest* const request) {
+	memset(request, 0, sizeof(*request));
 	request->type = HTTP_REQUEST;
 }
 
 void http_response_init(struct HTTPResponse* const response) {
+	memset(response, 0, sizeof(*response));
 	response->type = HTTP_RESPONSE;
 }
 
@@ -522,41 +303,127 @@ int http_response_parse(struct HTTPResponse* const object, const char* const buf
 
 int http_object_parse(struct HTTPObject* const object, const char* const buffer, const size_t size) {
 	
-	const char* separator = NULL;
-	
-	for (size_t index = 0; index < size; index++) {
-		if (index > MAX_HTTP_HEADERS_SIZE) {
-			return KADERR_HTTP_HEADERS_TOO_BIG;
-		}
-		
-		const char* start = buffer + index;
-		
-		int value = memcmp(CRLFCRLF, start, strlen(CRLFCRLF));
-		
-		if (value == 0) {
-			separator = start;
-			break;
-		}
+	if (object->type == HTTP_REQUEST && size > (size_t) MAX_HTTP_HEADERS_SIZE) {
+		return KADERR_HTTP_HEADERS_TOO_BIG;
 	}
 	
-	if (separator == NULL) {
+	// cURL reports HTTP/2 responses with an "HTTP/2 <code>" status line, which the parser doesn't understand, so we rewrite it as HTTP/1.1 and adjust for the 2 extra bytes later
+	const char* parse_buffer = buffer;
+	size_t parse_size = size;
+	
+	char* patched_buffer = NULL;
+	size_t offset_delta = 0;
+	int is_http2 = 0;
+	
+	if (object->type == HTTP_RESPONSE && size > strlen("HTTP/2 ") && memcmp(buffer, "HTTP/2", strlen("HTTP/2")) == 0 && (buffer[strlen("HTTP/2")] == ' ' || buffer[strlen("HTTP/2")] == '\r')) {
+		patched_buffer = malloc(size + 2);
+		
+		if (patched_buffer == NULL) {
+			return KADERR_MEMORY_ALLOCATE_FAILURE;
+		}
+		
+		memcpy(patched_buffer, "HTTP/1.1", strlen("HTTP/1.1"));
+		memcpy(patched_buffer + strlen("HTTP/1.1"), buffer + strlen("HTTP/2"), size - strlen("HTTP/2"));
+		
+		parse_buffer = patched_buffer;
+		parse_size = size + 2;
+		offset_delta = 2;
+		is_http2 = 1;
+	}
+	
+	const char* method = NULL;
+	size_t method_size = 0;
+	
+	const char* path = NULL;
+	size_t path_size = 0;
+	
+	const char* message = NULL;
+	size_t message_size = 0;
+	
+	int status = 0;
+	int minor_version = -1;
+	
+	struct phr_header headers[MAX_HTTP_HEADERS_COUNT];
+	size_t headers_count = MAX_HTTP_HEADERS_COUNT;
+	
+	const int consumed = (
+		(object->type == HTTP_REQUEST)
+			? phr_parse_request(parse_buffer, parse_size, &method, &method_size, &path, &path_size, &minor_version, headers, &headers_count, 0)
+			: phr_parse_response(parse_buffer, parse_size, &minor_version, &status, &message, &message_size, headers, &headers_count, 0)
+	);
+	
+	if (consumed < 0) {
+		free(patched_buffer);
 		return KADERR_HTTP_MALFORMED_REQUEST;
 	}
 	
-	// Headers
-	const size_t headers_size = (size_t) (separator - buffer);
+	if (headers_count == MAX_HTTP_HEADERS_COUNT) {
+		free(patched_buffer);
+		return KADERR_HTTP_HEADERS_TOO_BIG;
+	}
 	
-	char headers[headers_size + 1];
-	memcpy(headers, buffer, headers_size);
-	headers[headers_size] = '\0';
+	int code = KADERR_SUCCESS;
 	
-	object->ptr = headers;
+	switch (minor_version) {
+		case 0:
+			object->version = HTTP10;
+			break;
+		case 1:
+			object->version = HTTP11;
+			break;
+		default:
+			code = KADERR_HTTP_UNSUPPORTED_VERSION;
+			break;
+	}
+	
+	if (is_http2) {
+		object->version = HTTP2;
+	}
+	
+	if (code == KADERR_SUCCESS && object->type == HTTP_REQUEST) {
+		object->method = http_method_from_string(method, method_size);
+		
+		if (object->method == 0) {
+			code = KADERR_HTTP_UNKNOWN_METHOD;
+		}
+	}
+	
+	if (code == KADERR_SUCCESS && object->type == HTTP_REQUEST) {
+		object->uri = malloc(path_size + 1);
+		
+		if (object->uri == NULL) {
+			code = KADERR_MEMORY_ALLOCATE_FAILURE;
+		} else {
+			memcpy(object->uri, path, path_size);
+			object->uri[path_size] = '\0';
+		}
+	}
+	
+	if (code == KADERR_SUCCESS && object->type == HTTP_RESPONSE) {
+		object->status = (enum HTTPStatusCode) status;
+	}
+	
+	if (code == KADERR_SUCCESS) {
+		for (size_t index = 0; index < headers_count; index++) {
+			const struct phr_header* const header = &headers[index];
+			
+			code = http_headers_add_slice(&object->headers, header->name, header->name_len, header->value, header->value_len);
+			
+			if (code != KADERR_SUCCESS) {
+				break;
+			}
+		}
+	}
+	
+	free(patched_buffer);
+	
+	if (code != KADERR_SUCCESS) {
+		return code;
+	}
 	
 	// Body
-	const char* body_start = separator;
-	body_start += strlen(CRLFCRLF);
-	
-	const size_t body_size = (size_t) ((buffer + size) - body_start);
+	const size_t headers_size = (size_t) consumed - offset_delta;
+	const size_t body_size = size - headers_size;
 	
 	if (body_size > 0) {
 		object->body.content = malloc(body_size);
@@ -565,51 +432,8 @@ int http_object_parse(struct HTTPObject* const object, const char* const buffer,
 			return KADERR_MEMORY_ALLOCATE_FAILURE;
 		}
 		
-		memcpy(object->body.content, body_start, body_size);
+		memcpy(object->body.content, buffer + headers_size, body_size);
 		object->body.size = body_size;
-	}
-	
-	int code = 0;
-	
-	if (object->type == HTTP_REQUEST) {
-		// Parse HTTP method
-		code = http_method_parse(object);
-		
-		if (code != KADERR_SUCCESS) {
-			return code;
-		}
-		
-		// Parse HTTP URI
-		code = http_uri_parse(object);
-		
-		if (code != KADERR_SUCCESS) {
-			return code;
-		}
-	}
-	
-	// Parse HTTP version
-	code = http_version_parse(object);
-	
-	if (code != KADERR_SUCCESS) {
-		return code;
-	}
-	
-	if (object->type == HTTP_RESPONSE) {
-		// Parse status code
-		code = http_status_parse(object);
-		
-		if (code != KADERR_SUCCESS) {
-			return code;
-		}
-	}
-	
-	if (object->ptr != NULL) {
-		// Parse HTTP headers
-		code = http_headers_parse(object);
-		
-		if (code != KADERR_SUCCESS) {
-			return code;
-		}
 	}
 	
 	return KADERR_SUCCESS;
@@ -675,6 +499,8 @@ void http_object_free(struct HTTPObject* const object) {
 	
 	free(object->uri);
 	object->uri = NULL;
+	
+	object->ptr = NULL;
 	
 }
 	

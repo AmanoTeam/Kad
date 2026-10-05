@@ -109,6 +109,7 @@ struct HTTPResponse {
 	enum HTTPObjectType type;
 	enum HTTPStatusCode status;
 	enum HTTPVersion version;
+	enum HTTPMethod method;
 	struct HTTPHeaders headers;
 	struct HTTPBody body;
 	char* uri;
@@ -144,13 +145,8 @@ const char* http_status_stringify(const enum HTTPStatusCode status_code);
 int http_headers_add(struct HTTPHeaders* const headers, const char* key, const char* value);
 const struct HTTPHeader* http_headers_get(const struct HTTPHeaders* const headers, const char* key);
 
-int http_method_parse(struct HTTPObject* const object);
-int http_uri_parse(struct HTTPObject* const object);
-int http_version_parse(struct HTTPObject* const object);
-int http_headers_parse(struct HTTPObject* const object);
 int http_request_parse(struct HTTPRequest* const request, const char* const buffer, const size_t size);
 int http_response_parse(struct HTTPResponse* const request, const char* const buffer, const size_t size);
-int http_status_parse(struct HTTPObject* const object);
 int http_object_parse(struct HTTPObject* const object, const char* const buffer, const size_t size);
 
 void http_request_free(struct HTTPRequest* const request);
