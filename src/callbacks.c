@@ -159,13 +159,6 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			goto end;
 		}
 
-		/* Kad serves a single request per connection, so work as if every response was HTTP/1.0
-		   close-delimited to keep clients from reusing the socket */
-		if (http_headers_add(&response.headers, "Connection", strlen("Connection"), "close", strlen("close")) != KADERR_SUCCESS) {
-			status = -1;
-			goto end;
-		}
-
 		http_version = http_version_stringify(HTTP10);
 		message = http_status_stringify(response.status);
 
@@ -230,8 +223,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 				}
 			}
 			
-			/* Skip cURL's own connection header, but let ours ("close") through */
-			if (strcasecmp(header->key, "Connection") == 0 && strcasecmp(header->value, "close") != 0) {
+			if (strcasecmp(header->key, "Connection") == 0) {
 				continue;
 			}
 			

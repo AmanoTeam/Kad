@@ -473,11 +473,22 @@ add_subdirectory(
 	EXCLUDE_FROM_ALL
 )
 
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^i[3-6]86$")
+	target_compile_options(
+		crypto
+		PRIVATE
+		-msse2
+	)
+endif()
+
 file(REMOVE "${OPENSSL_SSL_LIBRARY}")
 file(REMOVE "${OPENSSL_CRYPTO_LIBRARY}")
+
 file(REMOVE "${NGTCP2_LIBRARY}")
 file(REMOVE "${NGTCP2_CRYPTO_BORINGSSL_LIBRARY}")
+
 file(REMOVE "${NGHTTP3_LIBRARY}")
+
 file(REMOVE "${ZSTD_LIBRARY}")
 
 foreach(target ${CURL_LIBRARY_DEPENDENCIES})
@@ -670,12 +681,19 @@ target_link_libraries(
 	${KAD_CURL_LIBRARY}
 )
 
-install(
-	TARGETS ${TARGETS}
-	RUNTIME DESTINATION bin
-	LIBRARY DESTINATION lib
-	ARCHIVE DESTINATION lib
-)
+if (KAD_STATIC)
+	install(
+		TARGETS kad
+		RUNTIME DESTINATION bin
+	)
+else()
+	install(
+		TARGETS ${TARGETS}
+		RUNTIME DESTINATION bin
+		LIBRARY DESTINATION lib
+		ARCHIVE DESTINATION lib
+	)
+endif()
 
 install(
 	FILES "${CMAKE_CURRENT_SOURCE_DIR}/submodules/cabundle/pem/cert.pem"
