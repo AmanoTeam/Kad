@@ -16,7 +16,7 @@ static const char SPACE[] = " ";
 
 static const char HEADER_SEPARATOR[] = ": ";
 
-static const int MAX_HTTP_HEADERS_SIZE = 10240;
-static const int MAX_CHUNK_SIZE = 1024 * 4;
+#define MAX_HTTP_HEADERS_SIZE (10240)
+#define MAX_CHUNK_SIZE (1024 * 4)
 
 #endif

@@ -296,6 +296,9 @@ static int request_handler(void* pointer) {
 	
 	const http_header_t* header = NULL;
 	
+	size_t index = 0;
+	size_t subindex = 0;
+	
 	char buffer[MAX_HTTP_HEADERS_SIZE];
 	const ssize_t recv_size = recv(fd, buffer, MAX_HTTP_HEADERS_SIZE, 0);
 	
@@ -401,18 +404,18 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	// Advertise all compression algorithms supported by curl and let it transparently decode the response body
+	/* Advertise all compression algorithms supported by curl and let it transparently decode the response body */
 	if (curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "") != CURLE_OK) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	for (size_t index = 0; index < data->request.headers.offset; index++) {
+	for (index = 0; index < data->request.headers.offset; index++) {
 		header = &data->request.headers.items[index];
 		
 		int matches = 0;
 		
-		for (size_t index = 0; index < sizeof(IMPERSONATE_HEADERS) / sizeof(*IMPERSONATE_HEADERS); index++) {
-			const char* const name = IMPERSONATE_HEADERS[index];
+		for (subindex = 0; subindex < sizeof(IMPERSONATE_HEADERS) / sizeof(*IMPERSONATE_HEADERS); subindex++) {
+			const char* const name = IMPERSONATE_HEADERS[subindex];
 			
 			matches = strcasecmp(header->key, name) == 0;
 			

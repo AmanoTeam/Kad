@@ -99,6 +99,8 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 
 size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
 	
+	size_t index = 0;
+	
 	transferdata_t* const data = (transferdata_t*) userdata;
 	ssl_context_t* const context = &data->context;
 	const size_t chunk_size = nitems * size;
@@ -150,10 +152,10 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			return CURL_WRITEFUNC_ERROR;
 		}
 		
-		for (size_t index = 0; index < response.headers.offset; index++) {
+		for (index = 0; index < response.headers.offset; index++) {
 			const http_header_t* const header = &response.headers.items[index];
 			
-			// cURL already performs content decoding, so there is no need for these headers
+			/* cURL already performs content decoding, so there is no need for these headers */
 			if (strcasecmp(header->key, "Content-Encoding") == 0) {
 				continue;
 			}
@@ -162,7 +164,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 				continue;
 			}
 			
-			// This header will report an incorrect value for compressed/chunked responses, so let's just remove it
+			/* This header will report an incorrect value for compressed/chunked responses, so let's just remove it */
 			if (strcasecmp(header->key, "Content-Length") == 0) {
 				const http_header_t* const item = http_headers_get(&response.headers, "Transfer-Encoding");
 				
@@ -177,7 +179,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 				}
 			}
 			
-			// Kad doesn't support persistent connections, and the HTTP/1.0 protocol already assumes a short-lived connection by default
+			/* Kad doesn't support persistent connections, and the HTTP/1.0 protocol already assumes a short-lived connection by default */
 			if (strcasecmp(header->key, "Connection") == 0) {
 				continue;
 			}
@@ -222,7 +224,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		
 		buffer_free(&data->buffer);
 		
-		// the request is no longer needed once its body has been fully forwarded
+		/* the request is no longer needed once its body has been fully forwarded */
 		
 		if (data->remaining == 0) {
 			http_request_free(&data->request);

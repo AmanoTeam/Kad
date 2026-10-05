@@ -234,7 +234,9 @@ int http_headers_add(http_headers_t* const headers, const char* key, const char*
 
 const http_header_t* http_headers_get(const http_headers_t* const headers, const char* key) {
 	
-	for (size_t index = 0; index < headers->offset; index++) {
+	size_t index = 0;
+	
+	for (index = 0; index < headers->offset; index++) {
 		const http_header_t* header = &headers->items[index];
 		
 		if (strcasecmp(header->key, key) == 0) {
@@ -248,6 +250,8 @@ const http_header_t* http_headers_get(const http_headers_t* const headers, const
 
 static enum HTTPMethod http_method_from_string(const char* const method, const size_t size) {
 	
+	size_t index = 0;
+	
 	static const char* const methods[] = {
 		"GET",
 		"HEAD",
@@ -259,7 +263,7 @@ static enum HTTPMethod http_method_from_string(const char* const method, const s
 		"TRACE"
 	};
 	
-	for (size_t index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
+	for (index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
 		if (strlen(methods[index]) == size && memcmp(methods[index], method, size) == 0) {
 			return (http_method_t) (index + 1);
 		}
@@ -307,7 +311,9 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 		return KADERR_HTTP_HEADERS_TOO_BIG;
 	}
 	
-	// cURL reports HTTP/2 responses with an "HTTP/2 <code>" status line, which the parser doesn't understand, so we rewrite it as HTTP/1.1 and adjust for the 2 extra bytes later
+	/* cURL reports HTTP/2 responses with an "HTTP/2 <code>" status line, which the parser doesn't understand, so we rewrite it as HTTP/1.1 and adjust for the 2 extra bytes later */
+	size_t index = 0;
+	
 	const char* parse_buffer = buffer;
 	size_t parse_size = size;
 	
@@ -404,7 +410,7 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	}
 	
 	if (code == KADERR_SUCCESS) {
-		for (size_t index = 0; index < headers_count; index++) {
+		for (index = 0; index < headers_count; index++) {
 			const struct phr_header* const header = &headers[index];
 			
 			code = http_headers_add_slice(&object->headers, header->name, header->name_len, header->value, header->value_len);
@@ -421,7 +427,7 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 		return code;
 	}
 	
-	// Body
+	/* Body */
 	const size_t headers_size = (size_t) consumed - offset_delta;
 	const size_t body_size = size - headers_size;
 	
@@ -442,11 +448,13 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 
 static void http_headers_free(http_headers_t* const headers) {
 	
+	size_t index = 0;
+	
 	if (headers->size < 1) {
 		return;
 	}
 	
-	for (size_t index = 0; index < headers->offset; index++) {
+	for (index = 0; index < headers->offset; index++) {
 		http_header_t* const header = &headers->items[index];
 		
 		if (header->key != NULL) {

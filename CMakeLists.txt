@@ -429,13 +429,6 @@ if (KAD_LTO)
 	endif()
 endif()
 
-set_target_properties(
-	kad
-	PROPERTIES
-	C_STANDARD 99
-	C_STANDARD_REQUIRED ON
-)
-
 target_compile_definitions(
 	kad
 	PRIVATE
