@@ -67,6 +67,8 @@ static const char* const IMPERSONATE_HEADERS[] = {
 
 static int fd = 0;
 
+static CURLM* curl_multi = NULL;
+
 static void sigint_handler(void) {
 	
 	close(fd);
@@ -162,14 +164,137 @@ static int load_ssl_certificates(void) {
 }
 #endif
 
+struct curl_pending {
+	CURL* handle;
+	struct curl_pending* next;
+};
+
+typedef struct curl_pending curl_pending_t;
+
+static curl_pending_t* curl_pending = NULL;
+static pthread_mutex_t curl_pending_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void* event_loop(void* pointer) {
+	
+	(void) pointer;
+	
+	int left = 0;
+	CURLMsg* msg = NULL;
+	
+	CURLMcode code = CURLM_OK;
+	CURLcode easy_code = 0;
+	
+	curl_pending_t* item = NULL;
+	transferdata_t* data = NULL;
+	
+	int running = 0;
+	
+	int err = 0;
+
+	while (1) {
+		pthread_mutex_lock(&curl_pending_mutex);
+		item = curl_pending;
+		curl_pending = NULL;
+		pthread_mutex_unlock(&curl_pending_mutex);
+		
+		while (item != NULL) {
+			curl_pending_t* const next = item->next;
+			
+			CURL* const handle = item->handle;
+			free(item);
+			
+			code = curl_multi_add_handle(curl_multi, handle);
+			
+			if (code != CURLM_OK) {
+				loggln(LOG_ERROR, "[error] could not add handle to multi stack: %s", curl_multi_strerror(code));
+				
+				easy_code = curl_easy_getinfo(handle, CURLINFO_PRIVATE, &data);
+				
+				if (easy_code != CURLE_OK) {
+					err = KADERR_CURL_GETINFO_FAILURE;
+					goto end;
+				}
+				
+				curl_easy_cleanup(handle);
+				transferdata_close(data);
+			}
+			
+			item = next;
+		}
+		
+		code = curl_multi_perform(curl_multi, &running);
+		
+		if (code != CURLM_OK) {
+			err = KADERR_CURL_MULTI_PERFORM_FAILURE;
+			goto end;
+		}
+		
+		while ((msg = curl_multi_info_read(curl_multi, &left)) != NULL) {
+			if (msg->msg != CURLMSG_DONE) {
+				continue;
+			}
+			
+			if (msg->data.result != CURLE_OK) {
+				loggln(LOG_ERROR, "[error] curl: %s", curl_easy_strerror(msg->data.result));
+			}
+			
+			easy_code = curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
+			
+			if (easy_code != CURLE_OK) {
+				err = KADERR_CURL_GETINFO_FAILURE;
+				goto end;
+			}
+			
+			code = curl_multi_remove_handle(curl_multi, msg->easy_handle);
+			
+			if (code != CURLM_OK) {
+				err = KADERR_CURL_MULTI_REMOVE_FAILURE;
+				goto end;
+			}
+			
+			curl_easy_cleanup(msg->easy_handle);
+			transferdata_close(data);
+		}
+		
+		code = curl_multi_poll(curl_multi, NULL, 0, 1000, NULL);
+		
+		if (code != CURLM_OK) {
+			err = KADERR_CURL_MULTI_POLL_FAILURE;
+			goto end;
+		}
+	}
+	
+	end:
+		if (easy_code != CURLE_OK) {
+			loggln(LOG_ERROR, "[error] %s: %s", strkaderr(err), curl_easy_strerror(easy_code));
+		} else {
+			loggln(LOG_ERROR, "[error] %s: %s", strkaderr(err), curl_multi_strerror(code));
+		}
+	
+	return NULL;
+	
+}
+
 static int request_handler(void* pointer) {
 	
-	int fd __close__ = *(int*) pointer;
+	int err = 0;
 	
-	ssl_context_t context __ssl_close__ = {0};
+	int fd = *(int*) pointer;
+	free(pointer);
+
+	transferdata_t* data __transferdata_close__ = NULL;
 	
-	http_request_t request __http_request_free__ = {0};
-	http_request_init(&request);
+	data = malloc(sizeof(*data));
+	
+	if (data == NULL) {
+		close(fd);
+		return KADERR_MEMORY_ALLOCATE_FAILURE;
+	}
+	
+	memset(data, 0, sizeof(*data));
+	data->fd = fd;
+	
+	const http_header_t* header = NULL;
 	
 	char buffer[MAX_HTTP_HEADERS_SIZE];
 	const ssize_t recv_size = recv(fd, buffer, MAX_HTTP_HEADERS_SIZE, 0);
@@ -178,21 +303,18 @@ static int request_handler(void* pointer) {
 		return KADERR_SOCKET_RECV_FAILURE;
 	}
 	
-	int rc = http_request_parse(&request, buffer, (size_t) recv_size);
+	http_request_init(&data->request);
 	
-	if (rc != KADERR_SUCCESS) {
-		return rc;
+	err = http_request_parse(&data->request, buffer, (size_t) recv_size);
+	
+	if (err != KADERR_SUCCESS) {
+		return err;
 	}
 	
-	const int is_secure = (request.method == CONNECT);
+	const int is_secure = (data->request.method == CONNECT);
 	
-	transferdata_t data = {
-		.context = &context,
-		.request = &request,
-		.fd = fd,
-		.is_secure = is_secure
-	};
-	
+	data->is_secure = is_secure;
+
 	if (is_secure) {
 		ssize_t size = send(fd, "HTTP/1.0 200 OK\r\n\r\n", 19, 0);
 		
@@ -200,28 +322,28 @@ static int request_handler(void* pointer) {
 			return KADERR_SOCKET_SEND_FAILURE;
 		}
 		
-		if (ssl_init(&context, &fd) == -1) {
+		if (ssl_init(&data->context, &fd) == -1) {
 			return KADERR_SSL_INIT_FAILURE;
 		}
 		
-		size = ssl_recv(&context, buffer, sizeof(buffer));
+		size = ssl_recv(&data->context, buffer, sizeof(buffer));
 		
 		if (size <= 0) {
 			return KADERR_SSL_RECV_FAILURE;
 		}
 		
-		char hostname[strlen(request.uri) + 1];
-		strcpy(hostname, request.uri);
+		char hostname[strlen(data->request.uri) + 1];
+		strcpy(hostname, data->request.uri);
 		
-		http_request_free(&request);
+		http_request_free(&data->request);
 		
-		const int code = http_request_parse(&request, buffer, (size_t) size);
+		err = http_request_parse(&data->request, buffer, (size_t) size);
 		
-		if (code != KADERR_SUCCESS) {
-			return code;
+		if (err != KADERR_SUCCESS) {
+			return err;
 		}
 		
-		char* uri = malloc(strlen(HTTPS_SCHEME) + strlen(SCHEME_SEPARATOR) + strlen(hostname) + strlen(request.uri) + 1);
+		char* uri = malloc(strlen(HTTPS_SCHEME) + strlen(SCHEME_SEPARATOR) + strlen(hostname) + strlen(data->request.uri) + 1);
 		
 		if (uri == NULL) {
 			return KADERR_MEMORY_ALLOCATE_FAILURE;
@@ -230,13 +352,13 @@ static int request_handler(void* pointer) {
 		strcpy(uri, HTTPS_SCHEME);
 		strcat(uri, SCHEME_SEPARATOR);
 		strcat(uri, hostname);
-		strcat(uri, request.uri);
+		strcat(uri, data->request.uri);
 		
-		free(request.uri);
-		request.uri = uri;
+		free(data->request.uri);
+		data->request.uri = uri;
 	}
 	
-	loggln(LOG_INFO, "[info] client request to %s", request.uri);
+	loggln(LOG_INFO, "[info] client request to %s", data->request.uri);
 	
 	curl_global_init(CURL_GLOBAL_ALL);
 	
@@ -279,10 +401,8 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	struct curl_slist* list __curl_slist_free_all__ = NULL;
-	
-	for (size_t index = 0; index < request.headers.offset; index++) {
-		const http_header_t* const header = &request.headers.items[index];
+	for (size_t index = 0; index < data->request.headers.offset; index++) {
+		header = &data->request.headers.items[index];
 		
 		int matches = 0;
 		
@@ -306,77 +426,67 @@ static int request_handler(void* pointer) {
 		strcat(item, HEADER_SEPARATOR);
 		strcat(item, header->value);
 		
-		struct curl_slist* const tmp = curl_slist_append(list, item);
+		struct curl_slist* const tmp = curl_slist_append(data->headers, item);
 		
 		if (tmp == NULL) {
 			return KADERR_CURL_SLIST_FAILURE;
 		}
 		
-		list = tmp;
+		data->headers = tmp;
 	}
 	
-	if (request.method == POST || request.method == PUT) {
-		const http_header_t* const item = http_headers_get(&request.headers, "Expect");
+	if (data->request.method == POST || data->request.method == PUT) {
+		header = http_headers_get(&data->request.headers, "Expect");
 		
-		if (item == NULL) {
-			struct curl_slist* const tmp = curl_slist_append(list, "Expect:");
+		if (header == NULL) {
+			struct curl_slist* const tmp = curl_slist_append(data->headers, "Expect:");
 			
 			if (tmp == NULL) {
 				return KADERR_CURL_SLIST_FAILURE;
 			}
 			
-			list = tmp;
+			data->headers = tmp;
 		}
 	}
 	
-	/*
-	if (curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, 0L) != CURLE_OK) {
+	if (curl_easy_setopt(curl, CURLOPT_HTTPHEADER, data->headers) != CURLE_OK) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	if (curl_easy_setopt(curl, CURLOPT_HTTP_TRANSFER_DECODING, 0L) != CURLE_OK) {
-		return KADERR_CURL_SETOPT_FAILURE;
-	}
-	*/
-	
-	if (curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list) != CURLE_OK) {
+	if (curl_easy_setopt(curl, CURLOPT_URL, data->request.uri) != CURLE_OK) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	if (curl_easy_setopt(curl, CURLOPT_URL, request.uri) != CURLE_OK) {
-		return KADERR_CURL_SETOPT_FAILURE;
-	}
-	
-	if (request.method != HEAD) {
+	if (data->request.method != HEAD) {
 		if (curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback) != CURLE_OK) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
 		
-		if (curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*) &data) != CURLE_OK) {
+		if (curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*) data) != CURLE_OK) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
 	}
 	
-	const http_header_t* const transfer_encoding = http_headers_get(&request.headers, "Transfer-Encoding");
+	header = http_headers_get(&data->request.headers, "Transfer-Encoding");
 	
-	const int use_chunked = (transfer_encoding != NULL && strcmp(transfer_encoding->value, "chunked") == 0);
+	const int use_chunked = (header != NULL && strcmp(header->value, "chunked") == 0);
 	
 	size_t content_length = 0;
 	
 	if (!use_chunked) {
-		const http_header_t* const content_length_header = http_headers_get(&request.headers, "Content-Length");
+		header = http_headers_get(&data->request.headers, "Content-Length");
 		
-		if (content_length_header != NULL) {
-			content_length = strtoull(content_length_header->value, NULL, 10);
+		if (header != NULL) {
+			content_length = strtoull(header->value, NULL, 10);
 		}
 	}
 	
-	if (request.body.size > 0 || content_length > 0 || use_chunked || recv_size >= MAX_HTTP_HEADERS_SIZE) {
+	if (data->request.body.size > 0 || content_length > 0 || use_chunked || recv_size >= MAX_HTTP_HEADERS_SIZE) {
 		if (curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback) != CURLE_OK) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
 		
-		if (curl_easy_setopt(curl, CURLOPT_READDATA, (void*) &data) != CURLE_OK) {
+		if (curl_easy_setopt(curl, CURLOPT_READDATA, (void*) data) != CURLE_OK) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
 		
@@ -386,14 +496,14 @@ static int request_handler(void* pointer) {
 			}
 		}
 		
-		data.remaining = content_length;
+		data->remaining = content_length;
 	}
 	
-	const char* const http_method = http_method_stringify(request.method);
+	const char* const http_method = http_method_stringify(data->request.method);
 	
 	CURLcode value = 0;
 	
-	switch (request.method) {
+	switch (data->request.method) {
 		case GET:
 			value = curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
 			break;
@@ -416,18 +526,31 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	if (curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void*) &data) != CURLE_OK) {
+	if (curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void*) data) != CURLE_OK) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
-	const CURLcode status = curl_easy_perform(curl);
-	
-	if (status != CURLE_OK) {
-		const char* const message = strlen(curl_error_message) > 0 ? curl_error_message : curl_easy_strerror(status);
-		loggln(LOG_ERROR, "[error] curl: %s", message);
-		
-		return KADERR_CURL_PERFORM_FAILURE;
+	if (curl_easy_setopt(curl, CURLOPT_PRIVATE, (void*) data) != CURLE_OK) {
+		return KADERR_CURL_SETOPT_FAILURE;
 	}
+	
+	curl_pending_t* const item = malloc(sizeof(*item));
+	
+	if (item == NULL) {
+		return KADERR_MEMORY_ALLOCATE_FAILURE;
+	}
+	
+	item->handle = curl;
+	
+	pthread_mutex_lock(&curl_pending_mutex);
+	item->next = curl_pending;
+	curl_pending = item;
+	pthread_mutex_unlock(&curl_pending_mutex);
+	
+	curl_multi_wakeup(curl_multi);
+	
+	curl = NULL;
+	data = NULL;
 	
 	return KADERR_SUCCESS;
 	
@@ -459,6 +582,17 @@ int main(int argc, char* argv[]) {
 	const struct sigaction sigpipe_action = {
 		.sa_handler = SIG_IGN
 	};
+	
+	curl_multi = curl_multi_init();
+	
+	if (curl_multi == NULL) {
+		loggln(LOG_ERROR, "[error] could not initialize multi stack");
+		
+		return EXIT_FAILURE;
+	}
+	
+	thread_t event_thread = {0};
+	thread_create(&event_thread, event_loop, NULL);
 	
 	if (sigaction(SIGPIPE, &sigpipe_action, NULL) == -1) {
 		const system_error_t error = get_system_error();
@@ -672,9 +806,19 @@ int main(int argc, char* argv[]) {
 		struct sockaddr_storage address = {0};
 		socklen_t size = sizeof(address);
 		
-		const int cfd = accept(fd, (struct sockaddr*) &address, &size);
+		int* cfd = malloc(sizeof(*cfd));
 		
-		if (cfd == -1) {
+		if (cfd == NULL) {
+			const system_error_t error = get_system_error();
+			close(fd);
+			loggln(LOG_ERROR, "[error] could not allocate memory for client socket: %s", error.message);
+			
+			return EXIT_FAILURE;
+		}
+		
+		*cfd = accept(fd, (struct sockaddr*) &address, &size);
+		
+		if (*cfd == -1) {
 			const system_error_t error = get_system_error();
 			close(fd);
 			loggln(LOG_ERROR, "[error] could not accept incoming socket connection: %s", error.message);
@@ -697,7 +841,7 @@ int main(int argc, char* argv[]) {
 		loggln(LOG_INFO, "[info] got connection from %s on port %s", host, port);
 		
 		thread_t thread = {0};
-		thread_create(&thread, handle_request, (void*) &cfd);
+		thread_create(&thread, handle_request, (void*) cfd);
 		threads[position++] = thread;
 		
 		if (position < KAD_DEFAULT_LISTEN_BACKLOG) {

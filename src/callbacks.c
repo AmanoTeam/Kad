@@ -22,10 +22,8 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 	size_t offset = 0;
 	const size_t requested = size * nmemb;
 	
-	// drain the body fragment buffered during request parsing
-	
-	if (data->request->body.size > 0) {
-		size_t buffered = data->request->body.size;
+	if (data->request.body.size > 0) {
+		size_t buffered = data->request.body.size;
 		
 		if (buffered > requested - offset) {
 			buffered = requested - offset;
@@ -35,16 +33,14 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 			buffered = data->remaining;
 		}
 		
-		memcpy(dest + offset, data->request->body.content, buffered);
+		memcpy(dest + offset, data->request.body.content, buffered);
 		
-		memmove(data->request->body.content, data->request->body.content + buffered, data->request->body.size - buffered);
-		data->request->body.size -= buffered;
+		memmove(data->request.body.content, data->request.body.content + buffered, data->request.body.size - buffered);
+		data->request.body.size -= buffered;
 		
 		offset += buffered;
 		data->remaining -= buffered;
 	}
-	
-	// stream the rest of the body from the client socket
 	
 	while (data->remaining > 0 && offset < requested) {
 		char chunk[MAX_CHUNK_SIZE];
@@ -59,7 +55,7 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 			wanted = data->remaining;
 		}
 		
-		const ssize_t rsize = (data->is_secure) ? ssl_recv(data->context, chunk, wanted) : recv(data->fd, chunk, wanted, 0);
+		const ssize_t rsize = (data->is_secure) ? ssl_recv(&data->context, chunk, wanted) : recv(data->fd, chunk, wanted, 0);
 		
 		if (rsize <= 0) {
 			return CURL_READFUNC_ABORT;
@@ -88,9 +84,10 @@ size_t read_callback_empty(char* dest, size_t size, size_t nmemb, void* userp) {
 size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 	
 	transferdata_t* const data = (transferdata_t*) userp;
+	ssl_context_t* const context = &data->context;
 	const size_t chunk_size = size * nmemb;
 	
-	const ssize_t wsize = (data->is_secure) ? ssl_send(data->context, ptr, chunk_size) : send(data->fd, ptr, chunk_size, 0);
+	const ssize_t wsize = (data->is_secure) ? ssl_send(context, ptr, chunk_size) : send(data->fd, ptr, chunk_size, 0);
 	
 	if (wsize == -1) {
 		return CURL_WRITEFUNC_ERROR;
@@ -103,6 +100,7 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
 	
 	transferdata_t* const data = (transferdata_t*) userdata;
+	ssl_context_t* const context = &data->context;
 	const size_t chunk_size = nitems * size;
 	
 	const size_t slength = data->buffer.slength + chunk_size;
@@ -146,7 +144,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		strcat(line, message);
 		strcat(line, CRLF);
 		
-		ssize_t wsize = (data->is_secure) ? ssl_send(data->context, line, line_size) : send(data->fd, line, line_size, 0);
+		ssize_t wsize = (data->is_secure) ? ssl_send(context, line, line_size) : send(data->fd, line, line_size, 0);
 		
 		if (wsize == -1) {
 			return CURL_WRITEFUNC_ERROR;
@@ -209,14 +207,14 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			strcat(line, header->value);
 			strcat(line, CRLF);
 			
-			const ssize_t wsize = (data->is_secure) ? ssl_send(data->context, line, strlen(line)) : send(data->fd, line, strlen(line), 0);
+			const ssize_t wsize = (data->is_secure) ? ssl_send(context, line, strlen(line)) : send(data->fd, line, strlen(line), 0);
 			
 			if (wsize == -1) {
 				return CURL_WRITEFUNC_ERROR;
 			}
 		}
 		
-		wsize = (data->is_secure) ? ssl_send(data->context, CRLF, strlen(CRLF)) : send(data->fd, CRLF, strlen(CRLF), 0);
+		wsize = (data->is_secure) ? ssl_send(context, CRLF, strlen(CRLF)) : send(data->fd, CRLF, strlen(CRLF), 0);
 		
 		if (wsize == -1) {
 			return CURL_WRITEFUNC_ERROR;
@@ -227,7 +225,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		// the request is no longer needed once its body has been fully forwarded
 		
 		if (data->remaining == 0) {
-			http_request_free(data->request);
+			http_request_free(&data->request);
 		}
 	}
 	

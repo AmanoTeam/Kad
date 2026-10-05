@@ -5,6 +5,7 @@
 
 #include "http.h"
 #include "ssl.h"
+#include "transferdata.h"
 
 void __close(int* ptr);
 
@@ -16,7 +17,12 @@ void __ssl_close(ssl_context_t* ptr);
 void __curl_slist_free_all(struct curl_slist** ptr);
 void __curl_easy_cleanup(CURL** ptr);
 
+void transferdata_close(transferdata_t* const data);
+void __transferdata_close(transferdata_t** ptr);
+
 #define __close__ __attribute__((__cleanup__(__close)))
+
+#define __transferdata_close__ __attribute__((__cleanup__(__transferdata_close)))
 
 #define __http_request_free__ __attribute__((__cleanup__(__http_request_free)))
 #define __http_response_free__ __attribute__((__cleanup__(__http_response_free)))

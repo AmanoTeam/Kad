@@ -25,6 +25,12 @@ const char* strkaderr(const int code) {
 			return "Failed to set option on the cURL HTTP client";
 		case KADERR_CURL_SLIST_FAILURE:
 			return "Could not append data to cURL array";
+		case KADERR_CURL_MULTI_PERFORM_FAILURE:
+			return "Failed to perform transfers on the cURL multi stack";
+		case KADERR_CURL_MULTI_POLL_FAILURE:
+			return "Failed to poll for events on the cURL multi stack";
+		case KADERR_CURL_MULTI_REMOVE_FAILURE:
+			return "Failed to remove handle from the cURL multi stack";
 		case KADERR_FSTREAM_CLOSE_FAILURE:
 			return "Could not close file";
 		case KADERR_FSTREAM_LOCK_FAILURE:
@@ -65,6 +71,8 @@ const char* strkaderr(const int code) {
 			return "Cannot receive data on SSL socket";
 		case KADERR_SSL_SEND_FAILURE:
 			return "Cannot send data on SSL socket";
+		case KADERR_CURL_GETINFO_FAILURE:
+			return "Could not get info about HTTP transfer";
 	}
 	
 	return "Unknown error";
