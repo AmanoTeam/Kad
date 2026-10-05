@@ -1,4 +1,7 @@
 #include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
 
 #if defined(_WIN32)
 	#include <windows.h>
@@ -7,91 +10,126 @@
 
 #if !defined(_WIN32)
 	#include <stdio.h>
+	#include <unistd.h>
+	#include <sys/file.h>
 #endif
 
 #include "fstream.h"
 
 #if defined(_WIN32) && defined(_UNICODE)
-	#include "symbols.h"
+	#include "absrel.h"
+	#include "sep.h"
 #endif
 
-/*
-fseeko()/ftello() availability:
-
-On Linux: available when defined(_LARGEFILE64_SOURCE) or _POSIX_C_SOURCE >= 200112L
-On Apple, Android, Haiku and SerenityOS: available by default
-On FreeBSD and DragonFly BSD: available when __POSIX_VISIBLE >= 200112 or __XSI_VISIBLE >= 500
-On NetBSD: available when __POSIX_VISIBLE >= 200112 or __XSI_VISIBLE >= 500 or defined(_NETBSD_SOURCE)
-*/
-
-#if ((defined(__linux__) && (defined(_LARGEFILE64_SOURCE) || _POSIX_C_SOURCE >= 200112L)) || defined(__HAIKU__) || defined(__serenity__) || \
-	((defined(__FreeBSD__) || defined(__DragonFly__)) && (__POSIX_VISIBLE >= 200112 || __XSI_VISIBLE >= 500)) || \
-	defined(__OpenBSD__) || (defined(__NetBSD__) && (__POSIX_VISIBLE >= 200112 || __XSI_VISIBLE >= 500 || defined(_NETBSD_SOURCE))) || \
-	defined(__ANDROID__) || defined(__APPLE__))
-	#define HAVE_FSEEKO 1
-	#define HAVE_FTELLO 1
+#if defined(__ANDROID__) && !defined(__LP64__) && __ANDROID_API__ < 24
+	#define fseeko fseek
+	#define ftello ftell
 #endif
 
-struct FStream* fstream_open(const char* const filename, const enum FStreamMode mode) {
+#if defined(_WIN32)
+	static DWORD* fstream_getmode(const fstream_mode_t mode, DWORD flags[2]) {
+		
+		DWORD* access = &flags[0];
+		DWORD* disposition = &flags[1];
+		
+		switch (mode) {
+			case FSTREAM_WRITE:
+				(*access) |= GENERIC_WRITE;
+				(*disposition) |= CREATE_ALWAYS;
+				break;
+			case FSTREAM_READ:
+				(*access) |= GENERIC_READ;
+				(*disposition) |= OPEN_EXISTING;
+				break;
+			case FSTREAM_APPEND:
+			case FSTREAM_TRUNCATE:
+				(*access) |= FILE_APPEND_DATA;
+				(*disposition) |= OPEN_EXISTING;
+				break;
+		}
+		
+		return flags;
+	}
+#else
+	static const char* fstream_getmode(const fstream_mode_t mode) {
+		
+		const char* flags = NULL;
+		
+		switch (mode) {
+			case FSTREAM_WRITE:
+				flags = "wb";
+				break;
+			case FSTREAM_READ:
+				flags = "rb";
+				break;
+			case FSTREAM_APPEND:
+				flags = "a";
+				break;
+			case FSTREAM_TRUNCATE:
+				flags = "r+";
+				break;
+		}
+		
+		return flags;
+		
+	}
+#endif
+
+fstream_t* fstream_open(const char* const filename, const fstream_mode_t mode) {
 	/*
 	Opens a file on disk.
 	
 	Returns a null pointer on error.
 	*/
 	
+	fstream_t* stream = NULL;
+	
 	#if defined(_WIN32)
-		DWORD desired_access = 0;
-		DWORD creation_disposition = 0;
-		const DWORD flags_and_attributes = FILE_ATTRIBUTE_NORMAL;
+		#if defined(_UNICODE)
+			size_t prefixs = 0;
+			wchar_t* wfilename = NULL;
+			int wfilenames = 0;
+		#endif
 		
-		switch (mode) {
-			case FSTREAM_WRITE:
-				desired_access |= GENERIC_WRITE;
-				creation_disposition |= CREATE_ALWAYS;
-				break;
-			case FSTREAM_READ:
-				desired_access |= GENERIC_READ;
-				creation_disposition |= OPEN_EXISTING;
-				break;
-			case FSTREAM_APPEND:
-				desired_access |= FILE_APPEND_DATA;
-				creation_disposition |= OPEN_EXISTING;
-				break;
-		}
+		DWORD values[2] = {0, 0};
+		
+		DWORD access = 0;
+		DWORD disposition = 0;
+		const DWORD flags = FILE_ATTRIBUTE_NORMAL;
+		
+		HANDLE handle = 0;
+		
+		fstream_getmode(mode, values);
+		
+		access = values[0];
+		disposition = values[1];
 		
 		#if defined(_UNICODE)
-			const int wcsize = MultiByteToWideChar(CP_UTF8, 0, filename, -1, NULL, 0);
+			/* This prefix is required to support long paths in Windows 10+ */
+			prefixs = isabsolute(filename) ? wcslen(WIN10_LONG_PATH_PREFIX) : 0;
 			
-			if (wcsize == 0) {
+			wfilenames = MultiByteToWideChar(CP_UTF8, 0, filename, -1, NULL, 0);
+			
+			if (wfilenames == 0) {
 				return NULL;
 			}
 			
-			wchar_t name[wcslen(WIN10LP_PREFIX) + wcsize];
-			wcscpy(name, WIN10LP_PREFIX);
+			wfilename = malloc((prefixs + (size_t) wfilenames) * sizeof(*wfilename));
 			
-			if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, name + wcslen(WIN10LP_PREFIX), wcsize) == 0) {
+			if (prefixs > 0) {
+				wcscpy(wfilename, WIN10_LONG_PATH_PREFIX);
+			}
+			
+			if (MultiByteToWideChar(CP_UTF8, 0, filename, -1, wfilename + prefixs, wfilenames) == 0) {
+				free(wfilename);
 				return NULL;
 			}
 			
-			HANDLE handle = CreateFileW(
-				name,
-				desired_access,
-				0,
-				NULL,
-				creation_disposition,
-				flags_and_attributes,
-				NULL
-			);
+			handle = CreateFileW(wfilename, access, 0, NULL, disposition, flags, NULL);
+			
+			free(wfilename);
 		#else
-			HANDLE handle = CreateFileA(
-				filename,
-				desired_access,
-				0,
-				NULL,
-				creation_disposition,
-				flags_and_attributes,
-				NULL
-			);
+			handle = CreateFileA(filename, access, 0, NULL, disposition, flags, NULL);
 		#endif
 		
 		if (handle == INVALID_HANDLE_VALUE) {
@@ -105,40 +143,128 @@ struct FStream* fstream_open(const char* const filename, const enum FStreamMode 
 			}
 		}
 	#else
-		const char* fmode = NULL;
+		FILE* file = NULL;
+		const char* flags = fstream_getmode(mode);
 		
-		switch (mode) {
-			case FSTREAM_WRITE:
-				fmode = "wb";
-				break;
-			case FSTREAM_READ:
-				fmode = "r";
-				break;
-			case FSTREAM_APPEND:
-				fmode = "a";
-				break;
-		}
+		file = fopen(filename, flags);
 		
-		FILE* handle = fopen(filename, fmode);
-		
-		if (handle == NULL) {
+		if (file == NULL) {
 			return NULL;
 		}
 	#endif
 	
-	struct FStream* const stream = malloc(sizeof(struct FStream));
+	stream = malloc(sizeof(*stream));
 	
 	if (stream == NULL) {
+		#if defined(_WIN32)
+			CloseHandle(handle);
+		#else
+			fclose(file);
+		#endif
+		
 		return NULL;
 	}
 	
-	stream->stream = handle;
+	#if defined(_WIN32)
+		stream->stream = handle;
+	#else
+		stream->stream = file;
+	#endif
+	
+	stream->mode = mode;
 	
 	return stream;
 	
 }
 
-ssize_t fstream_read(struct FStream* const stream, char* const buffer, const size_t size) {
+fstream_t* fstream_fdopen(const int fd, const fstream_mode_t mode) {
+	/*
+	Opens a file descriptor.
+	
+	Returns a null pointer on error.
+	*/
+	
+	fstream_t* stream = NULL;
+	
+	#if !defined(_WIN32)
+		FILE* file = NULL;
+		const char* flags = NULL;
+	#endif
+	
+	stream = malloc(sizeof(*stream));
+	
+	if (stream == NULL) {
+		return NULL;
+	}
+	
+	#if defined(_WIN32)
+		HANDLE handle = 0;
+		
+		(void) mode;
+		
+		handle = (HANDLE) _get_osfhandle(fd);
+		
+		if (handle == INVALID_HANDLE_VALUE) {
+			free(stream);
+			return NULL;
+		}
+	#else
+		flags = fstream_getmode(mode);
+		
+		file = fdopen(fd, flags);
+		
+		if (file == NULL) {
+			free(stream);
+			return NULL;
+		}
+	#endif
+	
+	#if defined(_WIN32)
+		stream->stream = handle;
+	#else
+		stream->stream = file;
+	#endif
+	
+	stream->mode = mode;
+	
+	return stream;
+	
+}
+
+int fstream_lock(fstream_t* const stream) {
+	/*
+	Locks the file.
+	
+	Returns (0) on success, (-1) on error.
+	*/
+	
+	int status = 0;
+	
+	#if !defined(_WIN32)
+		int fd = 0;
+	#endif
+	
+	#if defined(_WIN32)
+		status = LockFile(stream->stream, 0, 0, 0, 0) == TRUE;
+	#else
+		fd = fileno(stream->stream);
+		
+		if (fd == -1) {
+			return FSTREAM_ERROR;
+		}
+		
+		status = flock(fd, LOCK_EX) == 0;
+	#endif
+	
+	if (!status) {
+		return FSTREAM_ERROR;
+	}
+	
+	return FSTREAM_SUCCESS;
+	
+}
+
+ssize_t fstream_read(fstream_t* const stream, char* const buffer, const size_t size) {
 	/*
 	Reads a block of data.
 	
@@ -147,22 +273,38 @@ ssize_t fstream_read(struct FStream* const stream, char* const buffer, const siz
 	
 	#if defined(_WIN32)
 		DWORD rsize = 0;
-		const BOOL status = ReadFile(stream->stream, buffer, (DWORD) size, &rsize, NULL);
+		BOOL status = FALSE;
+	#endif
+	
+	#if !defined(_WIN32)
+		size_t rsize = 0;
+	#endif
+	
+	if (stream->mode == FSTREAM_WRITE) {
+		return FSTREAM_ERROR;
+	}
+	
+	#if defined(_WIN32)
+		status = ReadFile(stream->stream, buffer, (DWORD) size, &rsize, NULL);
 		
 		if (!status) {
-			return -1;
+			return FSTREAM_ERROR;
 		}
 		
-		return (rsize > 0) ? (ssize_t) rsize : 0;
+		if (rsize > 0) {
+			return (ssize_t) rsize;
+		}
+		
+		return FSTREAM_EOF;
 	#else
-		const size_t rsize = fread(buffer, sizeof(*buffer), size, stream->stream);
+		rsize = fread(buffer, sizeof(*buffer), size, stream->stream);
 		
 		if (rsize == 0) {
 			if (ferror(stream->stream) != 0) {
-				return -1;
+				return FSTREAM_ERROR;
 			}
 			
-			return 0;
+			return FSTREAM_EOF;
 		}
 		
 		return (ssize_t) rsize;
@@ -170,7 +312,7 @@ ssize_t fstream_read(struct FStream* const stream, char* const buffer, const siz
 	
 }
 
-int fstream_write(struct FStream* const stream, const char* const buffer, const size_t size) {
+int fstream_write(fstream_t* const stream, const char* const buffer, const size_t size) {
 	/*
 	Writes a block of data.
 	
@@ -179,24 +321,36 @@ int fstream_write(struct FStream* const stream, const char* const buffer, const 
 	
 	#if defined(_WIN32)
 		DWORD wsize = 0;
-		const BOOL status = WriteFile(stream->stream, buffer, (DWORD) size, &wsize, NULL);
+		BOOL status = FALSE;
+	#endif
+	
+	#if !defined(_WIN32)
+		size_t wsize = 0;
+	#endif
+	
+	if (stream->mode == FSTREAM_READ) {
+		return FSTREAM_ERROR;
+	}
+	
+	#if defined(_WIN32)
+		status = WriteFile(stream->stream, buffer, (DWORD) size, &wsize, NULL);
 		
 		if (status == 0 || wsize != (DWORD) size) {
-			return -1;
+			return FSTREAM_ERROR;
 		}
 	#else
-		const size_t wsize = fwrite(buffer, sizeof(*buffer), size, stream->stream);
+		wsize = fwrite(buffer, sizeof(*buffer), size, stream->stream);
 		
 		if (wsize != size) {
-			return -1;
+			return FSTREAM_ERROR;
 		}
 	#endif
 	
-	return 0;
+	return FSTREAM_SUCCESS;
 	
 }
 
-int fstream_seek(struct FStream* const stream, const long int offset, const enum FStreamSeek method) {
+int fstream_seek(fstream_t* const stream, const int64_t offset, const fstream_seek_t method) {
 	/*
 	Sets the current file position.
 	
@@ -205,6 +359,9 @@ int fstream_seek(struct FStream* const stream, const long int offset, const enum
 	
 	#if defined(_WIN32)
 		DWORD whence = 0;
+		
+		LARGE_INTEGER value = {0};
+		value.QuadPart = offset;
 		
 		switch (method) {
 			case FSTREAM_SEEK_BEGIN:
@@ -218,8 +375,8 @@ int fstream_seek(struct FStream* const stream, const long int offset, const enum
 				break;
 		}
 		
-		if (SetFilePointer(stream->stream, offset, NULL, whence) == INVALID_SET_FILE_POINTER) {
-			return -1;
+		if (SetFilePointerEx(stream->stream, value, NULL, whence) == INVALID_SET_FILE_POINTER) {
+			return FSTREAM_ERROR;
 		}
 	#else
 		int whence = 0;
@@ -236,43 +393,38 @@ int fstream_seek(struct FStream* const stream, const long int offset, const enum
 				break;
 		}
 		
-		#if defined(HAVE_FSEEKO)
-			if (fseeko(stream->stream, offset, whence) != 0) {
-				return -1;
-			}
-		#else
-			if (fseek(stream->stream, offset, whence) != 0) {
-				return -1;
-			}
-		#endif
+		if (fseeko(stream->stream, (long) offset, whence) != 0) {
+			return FSTREAM_ERROR;
+		}
 	#endif
 	
-	return 0;
+	return FSTREAM_SUCCESS;
 	
 }
 
-long int fstream_tell(struct FStream* const stream) {
+int64_t fstream_tell(fstream_t* const stream) {
 	/*
 	Returns the current file offset.
 	
 	Returns (>=0) on success, (-1) on error.
 	*/
 	
+	int64_t value = 0;
+	
 	#if defined(_WIN32)
-		const DWORD value = SetFilePointer(stream->stream, 0, NULL, FILE_CURRENT);
+		LARGE_INTEGER offset = {0};
+		offset.QuadPart = 0;
 		
-		if (value == INVALID_SET_FILE_POINTER) {
-			return -1;
+		if (SetFilePointerEx(stream->stream, offset, &offset, FILE_CURRENT) == FALSE) {
+			return FSTREAM_ERROR;
 		}
+		
+		value = offset.QuadPart;
 	#else
-		#if defined(HAVE_FTELLO)
-			const long int value = ftello(stream->stream);
-		#else
-			const long int value = ftell(stream->stream);
-		#endif
+		value = (int64_t) ftello(stream->stream);
 		
 		if (value == -1) {
-			return -1;
+			return FSTREAM_ERROR;
 		}
 	#endif
 	
@@ -280,19 +432,159 @@ long int fstream_tell(struct FStream* const stream) {
 	
 }
 
-int fstream_close(struct FStream* const stream) {
+int fstream_getfd(fstream_t* const stream) {
+	/*
+	Returns the current file descriptor.
+	
+	Returns (>=0) on success, (-1) on error.
+	*/
+	
+	#if defined(_WIN32)
+		const int value = (int) stream->stream;
+	#else
+		const int value = fileno(stream->stream);
+	#endif
+	
+	return (int) value;
+	
+}
+
+int64_t fstream_size(fstream_t* const stream) {
+	/*
+	Returns the current file size.
+	
+	Returns (>=0) on success, (-1) on error.
+	*/
+	
+	const int64_t pos = fstream_tell(stream);
+	
+	int64_t file_size = 0;
+	
+	int status = 0;
+	
+	status = fstream_seek(stream, 0, FSTREAM_SEEK_END);
+	
+	if (status == FSTREAM_ERROR) {
+		return FSTREAM_ERROR;
+	}
+	
+	file_size = fstream_tell(stream);
+	
+	if (file_size == FSTREAM_ERROR || file_size == FSTREAM_EOF) {
+		return FSTREAM_ERROR;
+	}
+	
+	status = fstream_seek(stream, pos, FSTREAM_SEEK_BEGIN);
+	
+	if (status == FSTREAM_ERROR) {
+		return FSTREAM_ERROR;
+	}
+	
+	return file_size;
+	
+}
+
+int fstream_truncate(fstream_t* const stream, const int64_t offset) {
+	/*
+	Truncates the file.
+	
+	Returns (0) on success, (-1) on error.
+	*/
+	
+	char zeros[1024];
+	
+	int status = 0;
+	const int64_t file_size = fstream_size(stream);
+	
+	int64_t diff = 0;
+	size_t write = 0;
+	
+	#if !defined(_WIN32)
+		int fd = 0;
+	#endif
+	
+	if (file_size == FSTREAM_ERROR) {
+		return FSTREAM_ERROR;
+	}
+	
+	if (offset == file_size) {
+		return FSTREAM_SUCCESS;
+	}
+	
+	memset(zeros, 0, sizeof(zeros));
+	
+	if (offset < file_size) {
+		fstream_seek(stream, offset, FSTREAM_SEEK_BEGIN);
+	} else {
+		fstream_seek(stream, 0, FSTREAM_SEEK_END);
+	}
+	
+	diff = (offset > file_size) ? (offset - file_size) : (file_size - offset);
+	
+	while (diff != 0) {
+		write = (diff > (int64_t) sizeof(zeros)) ? sizeof(zeros) : (size_t) diff;
+		
+		status = fstream_write(stream, zeros, write);
+		
+		if (status != FSTREAM_SUCCESS) {
+			return FSTREAM_ERROR;
+		}
+		
+		diff -= (int64_t) write;
+	}
+	
+	if (offset < file_size) {
+		#if defined(_WIN32)
+			status = fstream_seek(stream, offset, FSTREAM_SEEK_BEGIN);
+			
+			if (status != FSTREAM_SUCCESS) {
+				return FSTREAM_ERROR;
+			}
+			
+			if (!SetEndOfFile(stream->stream)) {
+				return FSTREAM_ERROR;
+			}
+		#else
+			status = fstream_seek(stream, 0, FSTREAM_SEEK_BEGIN);
+			
+			if (status != FSTREAM_SUCCESS) {
+				return FSTREAM_ERROR;
+			}
+			
+			fd = fileno(stream->stream);
+			
+			if (fd == -1) {
+				return FSTREAM_ERROR;
+			}
+			
+			if (ftruncate(fd, offset) == -1) {
+				return FSTREAM_ERROR;
+			}
+		#endif
+	}
+	
+	return FSTREAM_SUCCESS;
+	
+}
+
+int fstream_close(fstream_t* const stream) {
 	/*
 	Closes the stream.
 	
 	Returns (0) on success, (-1) on error.
 	*/
 	
+	if (stream == NULL) {
+		return FSTREAM_SUCCESS;
+	}
+	
 	#if defined(_WIN32)
 		if (stream->stream != 0) {
 			const BOOL status = CloseHandle(stream->stream);
 			
 			if (status == 0) {
-				return -1;
+				free(stream);
+				return FSTREAM_ERROR;
 			}
 			
 			stream->stream = 0;
@@ -300,7 +592,8 @@ int fstream_close(struct FStream* const stream) {
 	#else
 		if (stream->stream != NULL) {
 			if (fclose(stream->stream) != 0) {
-				return -1;
+				free(stream);
+				return FSTREAM_ERROR;
 			}
 			
 			stream->stream = NULL;
@@ -309,6 +602,6 @@ int fstream_close(struct FStream* const stream) {
 	
 	free(stream);
 	
-	return 0;
+	return FSTREAM_SUCCESS;
 	
 }

@@ -2,10 +2,10 @@
 
 #include "buffer.h"
 
-void buffer_free(buffer_t* obj) {
+void buffer_free(buffer_t* const buffer) {
 	
-	free(obj->s);
-	obj->s = NULL;
-	obj->slength = 0;
+	free(buffer->s);
+	buffer->s = NULL;
+	buffer->slength = 0;
 	
 }

@@ -1,3 +1,6 @@
+#if !defined(CERTIFICATE_H)
+#define CERTIFICATE_H
+
 #include <bearssl.h>
 
 // RSA key (2048 bits)
@@ -160,4 +163,4 @@ static const br_x509_certificate CHAIN[] = {
 
 #define CHAIN_LEN   1
 
-#pragma once
+#endif

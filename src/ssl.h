@@ -1,3 +1,6 @@
+#if !defined(SSL_H)
+#define SSL_H
+
 #include <stdlib.h>
 
 #if !defined(_WIN32)
@@ -13,9 +16,11 @@ struct SSLContext {
 	int initialized;
 };
 
-int ssl_init(struct SSLContext* context, int* fd);
-ssize_t ssl_send(struct SSLContext* context, const char* const buffer, const size_t size);
-ssize_t ssl_recv(struct SSLContext* context, char* const buffer, const size_t size);
-int ssl_close(struct SSLContext* context);
+typedef struct SSLContext ssl_context_t;
 
-#pragma once
+int ssl_init(ssl_context_t* context, int* fd);
+ssize_t ssl_send(ssl_context_t* context, const char* const buffer, const size_t size);
+ssize_t ssl_recv(ssl_context_t* context, char* const buffer, const size_t size);
+int ssl_close(ssl_context_t* context);
+
+#endif

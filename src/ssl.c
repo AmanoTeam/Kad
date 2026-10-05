@@ -10,7 +10,7 @@
 #include "certificate.h"
 #include "callbacks.h"
 
-int ssl_init(struct SSLContext* context, int* fd) {
+int ssl_init(ssl_context_t* context, int* fd) {
 	
 	br_ssl_server_init_full_rsa(&context->server_context, CHAIN, CHAIN_LEN, &RSA);
 	br_ssl_engine_set_buffer(&context->server_context.eng, context->io, sizeof(context->io), 1);
@@ -27,7 +27,7 @@ int ssl_init(struct SSLContext* context, int* fd) {
 	
 }
 
-ssize_t ssl_send(struct SSLContext* context, const char* const buffer, const size_t size) {
+ssize_t ssl_send(ssl_context_t* context, const char* const buffer, const size_t size) {
 	
 	const int status = br_sslio_write_all(&context->io_context, buffer, size);
 	
@@ -39,14 +39,15 @@ ssize_t ssl_send(struct SSLContext* context, const char* const buffer, const siz
 	
 }
 
-ssize_t ssl_recv(struct SSLContext* context, char* const buffer, const size_t size) {
+ssize_t ssl_recv(ssl_context_t* context, char* const buffer, const size_t size) {
 	
 	const ssize_t rsize = (ssize_t) br_sslio_read(&context->io_context, buffer, size);
+	
 	return rsize;
 	
 }
 
-int ssl_close(struct SSLContext* context) {
+int ssl_close(ssl_context_t* context) {
 	
 	if (!context->initialized) {
 		return 0;

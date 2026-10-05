@@ -1,3 +1,6 @@
+#if !defined(CONSTANTS_H)
+#define CONSTANTS_H
+
 static const char SCHEME_SEPARATOR[] = "://";
 
 static const char PROTOCOL_NAME[] = "HTTP";
@@ -11,15 +14,9 @@ static const char SLASH[] = "/";
 static const char COLON[] = ":";
 static const char SPACE[] = " ";
 
-#if defined(_WIN32)
-	#define PATH_SEPARATOR "\\"
-#else
-	#define PATH_SEPARATOR "/"
-#endif
-
 static const char HEADER_SEPARATOR[] = ": ";
 
 static const int MAX_HTTP_HEADERS_SIZE = 10240;
 static const int MAX_CHUNK_SIZE = 1024 * 4;
 
-#pragma once
+#endif

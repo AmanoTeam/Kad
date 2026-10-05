@@ -16,14 +16,16 @@
 #include "callbacks.h"
 #include "transferdata.h"
 #include "errors.h"
-#include "argparser.h"
+#include "systemerror.h"
+#include "argparse.h"
 #include "kad.h"
 #include "threads.h"
+#include "logging.h"
 
 #if !defined(KAD_DISABLE_SSL_VERIFY)
-	#include "filesystem.h"
 	#include "fstream.h"
-	#include "stringu.h"
+	#include "getexec.h"
+	#include "sep.h"
 #endif
 
 #define KAD_DEFAULT_IMPERSONATE_TARGET "chrome116"
@@ -51,13 +53,13 @@ static const char* const IMPERSONATE_HEADERS[] = {
 	"Accept-Language"
 };
 
-#ifndef KAD_DISABLE_SSL_VERIFY
-	static const char CA_CERT_FILENAME[] = 
-		PATH_SEPARATOR
+#if !defined(KAD_DISABLE_SSL_VERIFY)
+	static const char CA_CERT_FILENAME[] =
+		PATHSEP_M
 		"etc"
-		PATH_SEPARATOR
+		PATHSEP_M
 		"tls"
-		PATH_SEPARATOR
+		PATHSEP_M
 		"cert.pem";
 	
 	static struct curl_blob curl_blob_global = {0};
@@ -65,7 +67,7 @@ static const char* const IMPERSONATE_HEADERS[] = {
 
 static int fd = 0;
 
-void sigint_handler() {
+static void sigint_handler(void) {
 	
 	close(fd);
 	exit(EXIT_SUCCESS);
@@ -74,115 +76,120 @@ void sigint_handler() {
 
 static char target_impersonate[64] = {0};
 
-#ifndef KAD_DISABLE_SSL_VERIFY
-	static int load_ssl_certificates(void) {
+#if !defined(KAD_DISABLE_SSL_VERIFY)
+static int load_ssl_certificates(void) {
+	/*
+	Loads the CA certificate bundle into memory for cURL to use.
+	
+	Returns (0) on success, (-1) on error.
+	*/
+	
+	char* app_directory = get_app_directory();
+	
+	if (app_directory == NULL) {
+		loggln(LOG_ERROR, "[error] could not get application directory: %s", strkaderr(KADERR_FS_GET_APP_DIRECTORY_FAILURE));
 		
-		char app_filename[PATH_MAX];
+		return KADERR_FS_GET_APP_DIRECTORY_FAILURE;
+	}
+	
+	char ca_bundle[strlen(app_directory) + strlen(CA_CERT_FILENAME) + 1];
+	strcpy(ca_bundle, app_directory);
+	strcat(ca_bundle, CA_CERT_FILENAME);
+	
+	free(app_directory);
+	
+	fstream_t* stream = fstream_open(ca_bundle, FSTREAM_READ);
+	
+	if (stream == NULL) {
+		const system_error_t error = get_system_error();
+		loggln(LOG_ERROR, "[error] could not open file at '%s': %s", ca_bundle, error.message);
 		
-		if (get_app_filename(app_filename) == NULL) {
-			return KADERR_FILESYSTEM_FAILURE;
-		}
-		
-		char app_root_directory[PATH_MAX];
-		get_parent_directory(app_filename, app_root_directory, 2);
-		
-		char ca_bundle[strlen(app_root_directory) + strlen(CA_CERT_FILENAME) + 1];
-		strcpy(ca_bundle, app_root_directory);
-		strcat(ca_bundle, CA_CERT_FILENAME);
-		
-		struct FStream* const stream = fstream_open(ca_bundle, FSTREAM_READ);
-		
-		if (stream == NULL) {
-			const struct SystemError error = get_system_error();
-			fprintf(stderr, "fatal error: could not open file at '%s': %s\r\n", ca_bundle, error.message);
-			
-			return KADERR_FSTREAM_OPEN_FAILURE;
-		}
-		
-		if (fstream_seek(stream, 0, FSTREAM_SEEK_END) == -1) {
-			const struct SystemError error = get_system_error();
-			fprintf(stderr, "fatal error: could not seek file at '%s': %s\r\n", ca_bundle, error.message);
-			
-			fstream_close(stream);
-			
-			return KADERR_FSTREAM_SEEK_FAILURE;
-		}
-		
-		const long int file_size = fstream_tell(stream);
-		
-		if (file_size == -1) {
-			const struct SystemError error = get_system_error();
-			fprintf(stderr, "fatal error: could not get current file position of '%s': %s\r\n", ca_bundle, error.message);
-			
-			fstream_close(stream);
-			
-			return KADERR_FSTREAM_TELL_FAILURE;
-		}
-		
-		if (fstream_seek(stream, 0, FSTREAM_SEEK_BEGIN) == -1) {
-			const struct SystemError error = get_system_error();
-			fprintf(stderr, "fatal error: could not seek file at '%s': %s\r\n", ca_bundle, error.message);
-			
-			fstream_close(stream);
-			
-			return KADERR_FSTREAM_SEEK_FAILURE;
-		}
-		
-		curl_blob_global.data = malloc((size_t) file_size);
-		
-		if (curl_blob_global.data == NULL) {
-			const struct SystemError error = get_system_error();
-			fprintf(stderr, "fatal error: could not allocate memory: %s\r\n", error.message);
-			
-			fstream_close(stream);
-			
-			return KADERR_MEMORY_ALLOCATE_FAILURE;
-		}
-		
-		const ssize_t size = fstream_read(stream, curl_blob_global.data, (size_t) file_size);
-		
-		if (size == -1) {
-			const struct SystemError error = get_system_error();
-			fprintf(stderr, "fatal error: could not read contents of file at '%s': %s\r\n", ca_bundle, error.message);
-			
-			fstream_close(stream);
-			
-			return KADERR_FSTREAM_READ_FAILURE;
-		}
+		return KADERR_FSTREAM_OPEN_FAILURE;
+	}
+	
+	const int64_t file_size = fstream_size(stream);
+	
+	if (file_size == FSTREAM_ERROR) {
+		const system_error_t error = get_system_error();
+		loggln(LOG_ERROR, "[error] could not get file size of '%s': %s", ca_bundle, error.message);
 		
 		fstream_close(stream);
 		
-		curl_blob_global.len = (size_t) file_size;
-		
-		return KADERR_SUCCESS;
-		
+		return KADERR_FSTREAM_TELL_FAILURE;
 	}
+	
+	if (file_size == 0) {
+		loggln(LOG_ERROR, "[error] file at '%s' is empty", ca_bundle);
+		
+		fstream_close(stream);
+		
+		return KADERR_FSTREAM_READ_EMPTY_FILE;
+	}
+	
+	curl_blob_global.data = malloc((size_t) file_size);
+	
+	if (curl_blob_global.data == NULL) {
+		const system_error_t error = get_system_error();
+		loggln(LOG_ERROR, "[error] could not allocate memory: %s", error.message);
+		
+		fstream_close(stream);
+		
+		return KADERR_MEMORY_ALLOCATE_FAILURE;
+	}
+	
+	const ssize_t size = fstream_read(stream, curl_blob_global.data, (size_t) file_size);
+	
+	if (size == FSTREAM_ERROR) {
+		const system_error_t error = get_system_error();
+		loggln(LOG_ERROR, "[error] could not read contents of file at '%s': %s", ca_bundle, error.message);
+		
+		fstream_close(stream);
+		
+		return KADERR_FSTREAM_READ_FAILURE;
+	}
+	
+	if (fstream_close(stream) == FSTREAM_ERROR) {
+		const system_error_t error = get_system_error();
+		loggln(LOG_ERROR, "[error] could not close file at '%s': %s", ca_bundle, error.message);
+		
+		return KADERR_FSTREAM_CLOSE_FAILURE;
+	}
+	
+	curl_blob_global.len = (size_t) size;
+	
+	return KADERR_SUCCESS;
+	
+}
 #endif
 
 static int request_handler(void* pointer) {
 	
 	int fd __close__ = *(int*) pointer;
 	
-	struct SSLContext context __ssl_close__ = {0};
+	ssl_context_t context __ssl_close__ = {0};
 	
-	struct HTTPRequest request __http_request_free__ = {0};
+	http_request_t request __http_request_free__ = {0};
 	http_request_init(&request);
 	
-	struct HTTPResponse response __http_response_free__ = {0};
+	http_response_t response __http_response_free__ = {0};
 	http_response_init(&response);
 	
 	char buffer[MAX_HTTP_HEADERS_SIZE];
 	const ssize_t recv_size = recv(fd, buffer, MAX_HTTP_HEADERS_SIZE, 0);
 	
+	if (recv_size <= 0) {
+		return KADERR_SOCKET_RECV_FAILURE;
+	}
+	
 	int rc = http_request_parse(&request, buffer, (size_t) recv_size);
 	
-	if (rc == -1) {
-		return KADERR_SOCKET_RECV_FAILURE;
+	if (rc != KADERR_SUCCESS) {
+		return rc;
 	}
 	
 	const int is_secure = (request.method == CONNECT);
 	
-	struct transferdata data = {
+	transferdata_t data = {
 		.context = &context,
 		.request = &request,
 		.response = &response,
@@ -203,7 +210,7 @@ static int request_handler(void* pointer) {
 		
 		size = ssl_recv(&context, buffer, sizeof(buffer));
 		
-		if (size == -1) {
+		if (size <= 0) {
 			return KADERR_SSL_RECV_FAILURE;
 		}
 		
@@ -233,7 +240,7 @@ static int request_handler(void* pointer) {
 		request.uri = uri;
 	}
 	
-	printf("[info] client request to %s\n", request.uri);
+	loggln(LOG_INFO, "[info] client request to %s", request.uri);
 	
 	curl_global_init(CURL_GLOBAL_ALL);
 	
@@ -271,10 +278,15 @@ static int request_handler(void* pointer) {
 		return KADERR_CURL_SETOPT_FAILURE;
 	}
 	
+	// Advertise all compression algorithms supported by curl and let it transparently decode the response body
+	if (curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "") != CURLE_OK) {
+		return KADERR_CURL_SETOPT_FAILURE;
+	}
+	
 	struct curl_slist* list __curl_slist_free_all__ = NULL;
 	
 	for (size_t index = 0; index < request.headers.offset; index++) {
-		const struct HTTPHeader* const header = &request.headers.items[index];
+		const http_header_t* const header = &request.headers.items[index];
 		
 		int matches = 0;
 		
@@ -289,7 +301,7 @@ static int request_handler(void* pointer) {
 		}
 		
 		if (matches) {
-			fprintf(stderr, "[warn] ignoring client header '%s' to avoid conflicts with curl-impersonate\n", header->key);
+			loggln(LOG_WARN, "[warn] ignoring client header '%s' to avoid conflicts with curl-impersonate", header->key);
 			continue;
 		}
 		
@@ -308,7 +320,7 @@ static int request_handler(void* pointer) {
 	}
 	
 	if (request.method == POST || request.method == PUT) {
-		const struct HTTPHeader* const item = http_headers_get(&request.headers, "Expect");
+		const http_header_t* const item = http_headers_get(&request.headers, "Expect");
 		
 		if (item == NULL) {
 			struct curl_slist* const tmp = curl_slist_append(list, "Expect:");
@@ -358,12 +370,12 @@ static int request_handler(void* pointer) {
 			return KADERR_CURL_SETOPT_FAILURE;
 		}
 		
-		const struct HTTPHeader* const item = http_headers_get(&request.headers, "Transfer-Encoding");
+		const http_header_t* const item = http_headers_get(&request.headers, "Transfer-Encoding");
 		
 		const int use_chunked = (item != NULL && strcmp(item->value, "chunked") == 0);
 		
 		if (!use_chunked) {
-			const struct HTTPHeader* const item = http_headers_get(&request.headers, "Content-Length");
+			const http_header_t* const item = http_headers_get(&request.headers, "Content-Length");
 			
 			if (item != NULL) {
 				const long int content_length = strtol(item->value, NULL, 10);
@@ -410,7 +422,7 @@ static int request_handler(void* pointer) {
 	
 	if (status != CURLE_OK) {
 		const char* const message = strlen(curl_error_message) > 0 ? curl_error_message : curl_easy_strerror(status);
-		fprintf(stderr, "[error] curl: %s\n", message);
+		loggln(LOG_ERROR, "[error] curl: %s", message);
 		
 		return KADERR_CURL_PERFORM_FAILURE;
 	}
@@ -424,7 +436,7 @@ static void* handle_request(void* pointer) {
 	const int code = request_handler(pointer);
 	
 	if (code != KADERR_SUCCESS) {
-		fprintf(stderr, "[error] %s\n", strkaderr(code));
+		loggln(LOG_ERROR, "[error] %s", strkaderr(code));
 	}
 	
 	return NULL;
@@ -447,8 +459,8 @@ int main(int argc, char* argv[]) {
 	};
 	
 	if (sigaction(SIGPIPE, &sigpipe_action, NULL) == -1) {
-		const struct SystemError error = get_system_error();
-		fprintf(stderr, "fatal error: could not set signal handler: %s\n", error.message);
+		const system_error_t error = get_system_error();
+		loggln(LOG_ERROR, "[error] could not set signal handler: %s", error.message);
 		
 		return EXIT_FAILURE;
 	}
@@ -456,11 +468,20 @@ int main(int argc, char* argv[]) {
 	char address[512] = {0};
 	int port = 0;
 	
-	struct ArgumentParser argparser = {0};
-	argparser_init(&argparser, argc, argv);
+	char loglevel[16] = "verbose";
+	
+	argparse_t argparse = {0};
+	
+	const int code = argparse_init(&argparse, argc, argv);
+	
+	if (code != KADERR_SUCCESS) {
+		loggln(LOG_ERROR, "[error] %s", strkaderr(code));
+		
+		return EXIT_FAILURE;
+	}
 	
 	while (1) {
-		const struct Argument* const argument = argparser_next(&argparser);
+		const arg_t* const argument = argparse_getnext(&argparse);
 		
 		if (argument == NULL) {
 			break;
@@ -468,54 +489,80 @@ int main(int argc, char* argv[]) {
 		
 		if (strcmp(argument->key, "host") == 0) {
 			if (argument->value == NULL) {
-				fprintf(stderr, "fatal error: missing required value for argument: --%s\n", argument->key);
+				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
+				
 				return EXIT_FAILURE;
 			}
 			
 			const size_t size = strlen(argument->value);
 			
 			if (size > (sizeof(address) - 1)) {
-				fprintf(stderr, "fatal error: address string exceeds max buffer size: %s\n", argument->value);
+				loggln(LOG_ERROR, "[error] address string exceeds max buffer size: %s", argument->value);
+				
 				return EXIT_FAILURE;
 			}
 			
 			strcpy(address, argument->value);
 		} else if (strcmp(argument->key, "port") == 0) {
 			if (argument->value == NULL) {
-				fprintf(stderr, "fatal error: missing required value for argument: --%s\n", argument->key);
+				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
+				
 				return EXIT_FAILURE;
 			}
 			
 			const int value = atoi(argument->value);
 			
 			if (!(value >= 1 && value <= 65535)) {
-				fprintf(stderr, "fatal error: bad port number: %i\n", value);
+				loggln(LOG_ERROR, "[error] bad port number: %i", value);
+				
 				return EXIT_FAILURE;
 			}
 			
 			port = value;
 		} else if (strcmp(argument->key, "target") == 0) {
 			if (argument->value == NULL) {
-				fprintf(stderr, "fatal error: missing required value for argument: --%s\n", argument->key);
+				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
+				
 				return EXIT_FAILURE;
 			}
 			
 			const size_t size = strlen(argument->value);
 			
 			if (size > (sizeof(target_impersonate) - 1)) {
-				fprintf(stderr, "fatal error: target_impersonate string exceeds max buffer size: %s\n", argument->value);
+				loggln(LOG_ERROR, "[error] target_impersonate string exceeds max buffer size: %s", argument->value);
+				
 				return EXIT_FAILURE;
 			}
 			
 			strcpy(target_impersonate, argument->value);
+		} else if (strcmp(argument->key, "loglevel") == 0) {
+			if (argument->value == NULL) {
+				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
+				
+				return EXIT_FAILURE;
+			}
+			
+			const size_t size = strlen(argument->value);
+			
+			if (size > (sizeof(loglevel) - 1)) {
+				loggln(LOG_ERROR, "[error] loglevel string exceeds max buffer size: %s", argument->value);
+				
+				return EXIT_FAILURE;
+			}
+			
+			strcpy(loglevel, argument->value);
 		} else if (strcmp(argument->key, "v") == 0 || strcmp(argument->key, "version") == 0) {
 			printf("%s v%s (+%s)\n", KAD_NAME, KAD_VERSION, KAD_REPOSITORY);
+			
 			return EXIT_SUCCESS;
 		} else if (strcmp(argument->key, "h") == 0 || strcmp(argument->key, "help") == 0) {
 			printf("%s\n", KAD_DESCRIPTION);
+			
 			return EXIT_SUCCESS;
 		}
 	}
+	
+	argparse_free(&argparse);
 	
 	if (*address == '\0') {
 		strcpy(address, KAD_DEFAULT_LISTEN_ADDRESS);
@@ -529,18 +576,31 @@ int main(int argc, char* argv[]) {
 		strcpy(target_impersonate, KAD_DEFAULT_IMPERSONATE_TARGET);
 	}
 	
-	const int code = load_ssl_certificates();
+	const logging_t level = loglevel_unstringify(loglevel);
 	
-	if (code != KADERR_SUCCESS) {
-		fprintf(stderr, "fatal error: could not load CA bundle: %s\n", strkaderr(code));
-		return code;
+	if (level == LOG_STANDARD && strcmp(loglevel, "standard") != 0) {
+		loggln(LOG_ERROR, "[error] %s: %s", strkaderr(KADERR_LOGGING_INVALID_LEVEL), loglevel);
+		
+		return EXIT_FAILURE;
 	}
+	
+	loglevel_set(level);
+	
+	#if !defined(KAD_DISABLE_SSL_VERIFY)
+		const int err = load_ssl_certificates();
+		
+		if (err != KADERR_SUCCESS) {
+			loggln(LOG_ERROR, "[error] could not load CA bundle: %s", strkaderr(err));
+			
+			return err;
+		}
+	#endif
 	
 	fd = socket(AF_INET, SOCK_STREAM, 0);
 	
 	if (fd == -1) {
-		const struct SystemError error = get_system_error();
-		fprintf(stderr, "fatal error: could not create socket: %s\n", error.message);
+		const system_error_t error = get_system_error();
+		loggln(LOG_ERROR, "[error] could not create socket: %s", error.message);
 		
 		return EXIT_FAILURE;
 	}
@@ -580,27 +640,28 @@ int main(int argc, char* argv[]) {
 	}
 	
 	if (sockaddress == NULL) {
-		fprintf(stderr, "fatal error: invalid address: %s\n", KAD_DEFAULT_LISTEN_ADDRESS);
+		loggln(LOG_ERROR, "[error] invalid address: %s", address);
+		
 		return EXIT_FAILURE;
 	}
 	
 	if (bind(fd, sockaddress, addrsize) == -1) {
-		const struct SystemError error = get_system_error();
+		const system_error_t error = get_system_error();
 		close(fd);
-		fprintf(stderr, "fatal error: could not bind socket: %s\n", error.message);
+		loggln(LOG_ERROR, "[error] could not bind socket: %s", error.message);
 		
 		return EXIT_FAILURE;
 	}
 	
 	if (listen(fd, KAD_DEFAULT_LISTEN_BACKLOG) == -1) {
-		const struct SystemError error = get_system_error();
+		const system_error_t error = get_system_error();
 		close(fd);
-		fprintf(stderr, "fatal error: could not listen on socket: %s\n", error.message);
+		loggln(LOG_ERROR, "[error] could not listen on socket: %s", error.message);
 		
 		return EXIT_FAILURE;
 	}
 	
-	printf("Starting server at http://%s:%i (pid = %i)\n\n", address, port, getpid());
+	loggln(LOG_STANDARD, "Starting server at http://%s:%i (pid = %i)", address, port, getpid());
 	
 	thread_t threads[KAD_DEFAULT_LISTEN_BACKLOG];
 	int position = 0;
@@ -612,9 +673,9 @@ int main(int argc, char* argv[]) {
 		const int cfd = accept(fd, (struct sockaddr*) &address, &size);
 		
 		if (cfd == -1) {
-			const struct SystemError error = get_system_error();
+			const system_error_t error = get_system_error();
 			close(fd);
-			fprintf(stderr, "fatal error: could not accept incoming socket connection: %s\n", error.message);
+			loggln(LOG_ERROR, "[error] could not accept incoming socket connection: %s", error.message);
 			
 			return EXIT_FAILURE;
 		}
@@ -626,12 +687,12 @@ int main(int argc, char* argv[]) {
 		
 		if (code != 0) {
 			close(fd);
-			fprintf(stderr, "fatal error: could not get address info: %s\n", gai_strerror(code));
+			loggln(LOG_ERROR, "[error] could not get address info: %s", gai_strerror(code));
 			
 			return EXIT_FAILURE;
 		}
 		
-		printf("[info] got connection from %s on port %s\n", host, port);
+		loggln(LOG_INFO, "[info] got connection from %s on port %s", host, port);
 		
 		thread_t thread = {0};
 		thread_create(&thread, handle_request, (void*) &cfd);
@@ -641,7 +702,7 @@ int main(int argc, char* argv[]) {
 			continue;
 		}
 		
-		fprintf(stderr, "[warn] max number of concurrent connections reached\n");
+		loggln(LOG_WARN, "[warn] max number of concurrent connections reached");
 		
 		int index = 0;
 		

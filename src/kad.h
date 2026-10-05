@@ -1,7 +1,12 @@
+#if !defined(KAD_H)
+#define KAD_H
+
 #include "program_help.h"
 
-static const char KAD_NAME[] = "Kad";
-static const char KAD_VERSION[] = "0.1";
-static const char KAD_REPOSITORY[] = "https://github.com/AmanoTeam/Kad";
+#define KAD_NAME "Kad"
+#define KAD_VERSION "0.2"
+#define KAD_REPOSITORY "https://github.com/AmanoTeam/Kad"
 
-static const char KAD_DESCRIPTION[] = PROGRAM_HELP;
+#define KAD_DESCRIPTION PROGRAM_HELP
+
+#endif

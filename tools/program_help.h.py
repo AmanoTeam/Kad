@@ -3,13 +3,14 @@
 import argparse
 import os
 import io
+import json
 
 parser = argparse.ArgumentParser(
 	prog = "kad",
 	description = "A simple HTTP proxy server that forwards all requests through curl-impersonate.",
 	allow_abbrev = False,
 	add_help = False,
-	epilog = "Note, options that take an argument require a equal sign. E.g. --host=HOST"
+	epilog = "Note, options that take a value must use an equal sign (e.g. --host=HOST)."
 )
 
 parser.add_argument(
@@ -17,7 +18,7 @@ parser.add_argument(
 	"--help",
 	required = False,
 	action = "store_true",
-	help = "Show this help message and exit."
+	help = "Display this help text and exit."
 )
 
 parser.add_argument(
@@ -29,20 +30,29 @@ parser.add_argument(
 
 parser.add_argument(
 	"--host",
+	metavar = "HOST",
 	required = False,
 	help = "Bind socket to this host. [default: 127.0.0.1]"
 )
 
 parser.add_argument(
 	"--port",
+	metavar = "PORT",
 	required = False,
 	help = "Bind socket to this port. [default: 4000]"
 )
 
 parser.add_argument(
 	"--target",
+	metavar = "TARGET",
 	required = False,
 	help = "Impersonate this target. [default: chrome116]"
+)
+
+parser.add_argument(
+	"--loglevel",
+	required = False,
+	help = "Set output verbosity. Valid levels: 'quiet', 'standard', 'warning', 'error', 'info', 'verbose'. [default: verbose]"
 )
 
 os.environ["LINES"] = "1000"
@@ -54,14 +64,34 @@ file.seek(0, io.SEEK_SET)
 
 text = file.read()
 
-header = "/*\nThis file is auto-generated. Use the ../tools/program_help.h.py tool to regenerate.\n*/\n\n#define PROGRAM_HELP \\\n"
+header = """/*
+This file is auto-generated. Use the tool at ../tools/program_help.h.py to regenerate.
+*/
+
+#if !defined(PROGRAM_HELP_H)
+#define PROGRAM_HELP_H
+
+#define PROGRAM_HELP \\\n\
+"""
 
 for line in text.splitlines():
-	header += '\t"%s\\n" \\\n' % line
+	line = json.dumps(obj = line + "\n")
+	header += '\t%s\\\n' % line
 
-header += "\n#pragma once\n"
+header += "\n#endif\n"
 
-print("Saving to ../src/program_help.h")
+destination = os.path.join(
+	os.path.dirname(
+		p = os.path.dirname(
+			p = os.path.realpath(
+				filename = __file__
+			)
+		)
+	),
+	"src/program_help.h"
+)
+	
+print("Saving to '%s'" % (destination))
 
-with open(file = "../src/program_help.h", mode = "w") as file:
+with open(file = destination, mode = "w") as file:
 	file.write(header)
