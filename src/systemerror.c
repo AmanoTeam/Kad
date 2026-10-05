@@ -48,10 +48,9 @@ system_error_t get_system_error(void) {
 		error.code = (int) code;
 	#else
 		const int code = errno;
+		const char* const message = strerror(code);
 		
 		error.code = code;
-		
-		const char* const message = strerror(code);
 		
 		if (message != NULL) {
 			strcpy(error.message, message);
