@@ -25,3 +25,9 @@
 [submodule "submodules/picohttpparser"]
 	path = submodules/picohttpparser
 	url = https://github.com/h2o/picohttpparser
+[submodule "submodules/ngtcp2"]
+	path = submodules/ngtcp2
+	url = https://github.com/ngtcp2/ngtcp2
+[submodule "submodules/nghttp3"]
+	path = submodules/nghttp3
+	url = https://github.com/ngtcp2/nghttp3

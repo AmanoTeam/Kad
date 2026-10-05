@@ -18,7 +18,10 @@ set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 set(CMAKE_PLATFORM_NO_VERSIONED_SONAME ON)
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 set(EXEC_RPATH "")
@@ -34,7 +37,9 @@ endif()
 
 set(CURL_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/curl")
 set(BORINGSSL_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/boringssl")
+set(NGTCP2_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/ngtcp2")
 set(NGHTTP2_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/nghttp2")
+set(NGHTTP3_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/nghttp3")
 set(ZLIB_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/zlib")
 set(BROTLI_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/brotli")
 set(CARES_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/c-ares")
@@ -83,7 +88,9 @@ set(
 	zlib
 	crypto
 	ssl
+	ngtcp2
 	nghttp2
+	nghttp3
 	brotlicommon
 	brotlidec
 	c-ares
@@ -95,6 +102,9 @@ set(
 	crypto
 	ssl
 	nghttp2
+	ngtcp2
+	ngtcp2_crypto_boringssl_static
+	nghttp3
 	brotlidec
 	c-ares
 )
@@ -106,10 +116,11 @@ set(HTTP_ONLY ON)
 set(ENABLE_THREADED_RESOLVER OFF)
 set(CURL_USE_OPENSSL ON)
 set(USE_NGHTTP2 ON)
+set(USE_NGTCP2 ON)
+set(USE_ECH ON)
 set(CURL_BROTLI ON)
 set(ENABLE_ARES ON)
 set(CURL_USE_LIBPSL OFF)
-set(CURL_DISABLE_ALTSVC ON)
 set(CURL_DISABLE_CRYPTO_AUTH ON)
 set(CURL_DISABLE_HSTS ON)
 set(CURL_DISABLE_HTTP_AUTH ON)
@@ -131,9 +142,18 @@ set(ENABLE_LIB_ONLY ON CACHE BOOL "")
 
 # BoringSSL
 set(BUILD_SHARED_LIBS ON)
+set(BUILD_TESTING OFF)
 
 execute_process(
 	COMMAND git submodule update --init --depth=1
+	WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+	COMMAND_ERROR_IS_FATAL ANY
+)
+
+execute_process(
+	COMMAND git submodule update --init --depth=1 --recursive
+		submodules/ngtcp2
+		submodules/nghttp3
 	WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 	COMMAND_ERROR_IS_FATAL ANY
 )
@@ -142,6 +162,14 @@ file(READ "${ZLIB_SOURCE_DIRECTORY}/CMakeLists.txt" FILE_CONTENTS)
 string(REPLACE "(UNIX)" "(1)" FILE_CONTENTS "${FILE_CONTENTS}")
 string(REPLACE "(NOT APPLE)" "(0)" FILE_CONTENTS "${FILE_CONTENTS}")
 file(WRITE "${ZLIB_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
+
+file(READ "${NGTCP2_SOURCE_DIRECTORY}/CMakeLists.txt" FILE_CONTENTS)
+string(REPLACE "(check" "(check_v1" FILE_CONTENTS "${FILE_CONTENTS}")
+file(WRITE "${NGTCP2_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
+
+file(READ "${NGHTTP3_SOURCE_DIRECTORY}/CMakeLists.txt" FILE_CONTENTS)
+string(REPLACE "(check" "(check_v2" FILE_CONTENTS "${FILE_CONTENTS}")
+file(WRITE "${NGHTTP3_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
 
 if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.patched")
 	message("-- Patching cURL")
@@ -171,14 +199,32 @@ if (NOT EXISTS "${BORINGSSL_SOURCE_DIRECTORY}/.patched")
 	file(WRITE "${BORINGSSL_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
-if (NOT APPLE)
-	if (CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
-		add_link_options(-s)
-	endif()
+if (NOT EXISTS "${NGTCP2_SOURCE_DIRECTORY}/.patched")
+	message("-- Patching ngtcp2")
+
+	execute_process(
+		COMMAND patch
+		--directory=${NGTCP2_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CURL_IMPERSONATE_SOURCE_DIRECTORY}/patches/ngtcp2.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+	
+	file(WRITE "${NGTCP2_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
-if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
-	add_compile_options(-Oz)
+if (NOT EXISTS "${NGHTTP3_SOURCE_DIRECTORY}/.patched")
+	message("-- Patching nghttp3")
+
+	execute_process(
+		COMMAND patch
+		--directory=${NGHTTP3_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CURL_IMPERSONATE_SOURCE_DIRECTORY}/patches/nghttp3.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+	
+	file(WRITE "${NGHTTP3_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
@@ -222,16 +268,49 @@ set(
 
 set(CARES_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}cares${CMAKE_SHARED_LIBRARY_SUFFIX}")
 
-set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY)
+set(ENABLE_OPENSSL OFF)
+set(ENABLE_GNUTLS OFF)
+set(ENABLE_WOLFSSL OFF)
+set(ENABLE_PICOTLS OFF)
+set(ENABLE_BORINGSSL ON)
+set(ENABLE_STATIC_LIB ON)
 
-if (ANDROID)
-	set(ANDROID_STL "c++_static")
-endif()
+set(HAVE_BORINGSSL TRUE CACHE INTERNAL "" FORCE)
+set(HAVE_SSL_SET_QUIC_TLS_CBS TRUE CACHE INTERNAL "" FORCE)
+set(HAVE_SSL_SET1_ECH_CONFIG_LIST TRUE CACHE INTERNAL "" FORCE)
+set(BORINGSSL_INCLUDE_DIR "${BORINGSSL_SOURCE_DIRECTORY}/include")
+
+set(BORINGSSL_LIBRARIES "${OPENSSL_SSL_LIBRARY};${OPENSSL_CRYPTO_LIBRARY}")
+
+set(
+	NGTCP2_INCLUDE_DIR
+	"${NGTCP2_SOURCE_DIRECTORY}/lib/includes"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/ngtcp2/lib/includes"
+	"${NGTCP2_SOURCE_DIRECTORY}/crypto/includes"
+)
+
+set(NGTCP2_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}ngtcp2${CMAKE_SHARED_LIBRARY_SUFFIX}")
+
+set(NGTCP2_CRYPTO_BORINGSSL_LIBRARY "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}/${CMAKE_STATIC_LIBRARY_PREFIX}ngtcp2_crypto_boringssl${CMAKE_STATIC_LIBRARY_SUFFIX}")
+
+set(
+	NGHTTP3_INCLUDE_DIR
+	"${NGHTTP3_SOURCE_DIRECTORY}/lib/includes"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp3/lib/includes"
+)
+
+set(NGHTTP3_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_SHARED_LIBRARY_PREFIX}nghttp3${CMAKE_SHARED_LIBRARY_SUFFIX}")
+
+file(WRITE "${NGTCP2_LIBRARY}" "")
+file(WRITE "${NGTCP2_CRYPTO_BORINGSSL_LIBRARY}" "")
+file(WRITE "${NGHTTP3_LIBRARY}" "")
 
 file(MAKE_DIRECTORY
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/zlib"
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp2/lib/includes"
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/c-ares"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp3/lib/includes"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/ngtcp2/lib/includes"
 )
 
 add_subdirectory(
@@ -259,6 +338,18 @@ add_subdirectory(
 )
 
 add_subdirectory(
+	"${NGTCP2_SOURCE_DIRECTORY}"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/ngtcp2"
+	EXCLUDE_FROM_ALL
+)
+
+add_subdirectory(
+	"${NGHTTP3_SOURCE_DIRECTORY}"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp3"
+	EXCLUDE_FROM_ALL
+)
+
+add_subdirectory(
 	"${BROTLI_SOURCE_DIRECTORY}"
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/brotli"
 	EXCLUDE_FROM_ALL
@@ -272,6 +363,9 @@ add_subdirectory(
 
 file(REMOVE "${OPENSSL_SSL_LIBRARY}")
 file(REMOVE "${OPENSSL_CRYPTO_LIBRARY}")
+file(REMOVE "${NGTCP2_LIBRARY}")
+file(REMOVE "${NGTCP2_CRYPTO_BORINGSSL_LIBRARY}")
+file(REMOVE "${NGHTTP3_LIBRARY}")
 
 foreach(target ${CURL_LIBRARY_DEPENDENCIES})
 	add_custom_command(
@@ -304,7 +398,6 @@ if (NOT KAD_SSL_VERIFY)
 	)
 endif()
 
-# Enable Unicode on Windows builds
 if (WIN32 AND KAD_UNICODE)
 	target_sources(
 		kad
@@ -363,8 +456,11 @@ set_target_properties(
 	INSTALL_RPATH "${LIB_RPATH}"
 )
 
+find_package(Threads REQUIRED)
+
 target_link_libraries(
 	kad
+	Threads::Threads
 	ssl
 	crypto
 	libcurl_shared
@@ -381,39 +477,3 @@ install(
 	DESTINATION etc/tls
 	RENAME cert.pem
 )
-
-target_link_options(
-	kad
-	BEFORE
-	PRIVATE
-	-pthread
-)
-
-if ("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "i386")
-	target_link_options(
-		ssl
-		BEFORE
-		PRIVATE
-		-latomic
-	)
-endif()
-
-if (NOT ANDROID)
-	foreach(target ssl nghttp2)
-		target_link_options(
-			${target}
-			BEFORE
-			PRIVATE
-			-static-libgcc -static-libstdc++
-		)
-	endforeach()
-endif()
-
-if (CMAKE_CROSSCOMPILING)
-	target_link_options(
-		kad
-		BEFORE
-		PRIVATE
-		-Wl,-rpath-link -Wl,${CMAKE_CURRENT_BINARY_DIR}
-	)
-endif()
