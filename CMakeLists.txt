@@ -219,6 +219,10 @@ else()
 	set(BUILD_SHARED_LIBS ON)
 endif()
 
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^i[3-6]86$")
+	add_compile_options(-msse2)
+endif()
+
 # zlib
 set(ZLIB_BUILD_TESTING OFF)
 
@@ -473,14 +477,6 @@ add_subdirectory(
 	EXCLUDE_FROM_ALL
 )
 
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "^i[3-6]86$")
-	target_compile_options(
-		crypto
-		PRIVATE
-		-msse2
-	)
-endif()
-
 file(REMOVE "${OPENSSL_SSL_LIBRARY}")
 file(REMOVE "${OPENSSL_CRYPTO_LIBRARY}")
 
@@ -571,14 +567,13 @@ set_target_properties(
 	LINKER_LANGUAGE CXX
 )
 
-if (KAD_STATIC)
+if (KAD_STATIC AND NOT (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 	target_link_options(
 		kad
 		PRIVATE
 		-static-libstdc++ -static-libgcc
 	)
 endif()
-
 
 if (NOT KAD_SSL_VERIFY)
 	target_compile_definitions(
