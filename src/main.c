@@ -482,6 +482,11 @@ static int request_handler(void* pointer) {
 		goto end;
 	}
 	
+	if (curl_easy_setopt(curl, CURLOPT_DNS_SERVERS, "8.8.8.8,8.8.4.4") != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
+	
 	if (curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback_empty) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
