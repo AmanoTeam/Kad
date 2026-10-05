@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.19 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.22 FATAL_ERROR)
 
 project(
 	Kad
@@ -362,7 +362,7 @@ set(
 	TARGETS
 	kad
 	bearssl
-	libcurl
+	libcurl_shared
 	zlib
 	crypto
 	ssl
@@ -395,7 +395,6 @@ set(ENABLE_ARES ON)
 set(CURL_USE_LIBPSL OFF)
 set(CURL_DISABLE_ALTSVC ON)
 set(CURL_DISABLE_CRYPTO_AUTH ON)
-set(CURL_DISABLE_COOKIES ON)
 set(CURL_DISABLE_HSTS ON)
 set(CURL_DISABLE_HTTP_AUTH ON)
 set(CURL_DISABLE_NETRC ON)
@@ -435,7 +434,7 @@ if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.patched")
 		COMMAND patch
 		--directory=${CURL_SOURCE_DIRECTORY}
 		--strip=1
-		--input=${CURL_IMPERSONATE_SOURCE_DIRECTORY}/chrome/patches/curl-impersonate.patch
+		--input=${CURL_IMPERSONATE_SOURCE_DIRECTORY}/patches/curl.patch
 		COMMAND_ERROR_IS_FATAL ANY
 	)
 
@@ -449,7 +448,7 @@ if (NOT EXISTS "${BORINGSSL_SOURCE_DIRECTORY}/.patched")
 		COMMAND patch
 		--directory=${BORINGSSL_SOURCE_DIRECTORY}
 		--strip=1
-		--input=${CURL_IMPERSONATE_SOURCE_DIRECTORY}/chrome/patches/boringssl-old-ciphers.patch
+		--input=${CURL_IMPERSONATE_SOURCE_DIRECTORY}/patches/boringssl.patch
 		COMMAND_ERROR_IS_FATAL ANY
 	)
 
@@ -516,6 +515,12 @@ if (ANDROID)
 	set(ANDROID_STL "c++_static")
 endif()
 
+file(MAKE_DIRECTORY
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/zlib"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp2/lib/includes"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/c-ares"
+)
+
 add_subdirectory(
 	"${CURL_SOURCE_DIRECTORY}"
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/curl"
@@ -566,7 +571,7 @@ foreach(target ${CURL_LIBRARY_DEPENDENCIES})
 	)
 
 	add_dependencies(
-		libcurl
+		libcurl_shared
 		"ensure_${target}"
 	)
 endforeach()
@@ -623,7 +628,7 @@ set_target_properties(
 )
 
 set_target_properties(
-	libcurl ssl brotlidec
+	libcurl_shared ssl brotlidec
 	PROPERTIES
 	BUILD_RPATH "${LIB_RPATH}"
 	INSTALL_RPATH "${LIB_RPATH}"
@@ -632,7 +637,7 @@ set_target_properties(
 target_link_libraries(
 	kad
 	bearssl
-	libcurl
+	libcurl_shared
 )
 
 install(
