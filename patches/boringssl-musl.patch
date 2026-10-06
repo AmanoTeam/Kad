@@ -1,8 +1,8 @@
 diff --git a/crypto/rand/urandom.cc b/crypto/rand/urandom.cc
-index b5aabde..b7bef27 100644
+index b5aabde..fa458ad 100644
 --- a/crypto/rand/urandom.cc
 +++ b/crypto/rand/urandom.cc
-@@ -25,11 +25,15 @@
+@@ -25,11 +25,19 @@
  
  #include <errno.h>
  #include <fcntl.h>
@@ -11,6 +11,10 @@ index b5aabde..b7bef27 100644
  #include <sys/syscall.h>
  #include <unistd.h>
  
++#if defined(__has_include) && __has_include(<linux/random.h>)
++#include <linux/random.h>
++#endif
++
 +// GRND_NONBLOCK is defined in <linux/random.h>, which musl does not ship.
 +#ifndef GRND_NONBLOCK
 +#define GRND_NONBLOCK 0x0001
