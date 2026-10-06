@@ -459,6 +459,19 @@ add_subdirectory(
 	EXCLUDE_FROM_ALL
 )
 
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+	target_compile_options(
+		ssl
+		PRIVATE
+		-Wno-error=stringop-overflow
+	)
+	target_compile_options(
+		crypto
+		PRIVATE
+		-Wno-error=stringop-overflow
+	)
+endif()
+
 add_subdirectory(
 	"${NGHTTP2_SOURCE_DIRECTORY}"
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/nghttp2"
@@ -585,7 +598,20 @@ set_target_properties(
 	LINKER_LANGUAGE CXX
 )
 
-if (KAD_STATIC AND WIN32)
+include(CheckCSourceCompiles)
+
+check_c_source_compiles(
+	"#include <features.h>
+	#if !defined(__linux__) || defined(__GLIBC__) || defined(__UCLIBC__) || defined(__BIONIC__)
+		#error \"not musl\"
+	#endif
+	int main(void) {
+		return 0;
+	}"
+	KAD_MUSL
+)
+
+if (KAD_STATIC AND (WIN32 OR KAD_MUSL))
 	target_link_options(
 		kad
 		PRIVATE
