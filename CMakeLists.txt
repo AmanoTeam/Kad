@@ -305,6 +305,20 @@ if (NOT EXISTS "${BORINGSSL_SOURCE_DIRECTORY}/.patched")
 	file(WRITE "${BORINGSSL_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
+if (NOT EXISTS "${BORINGSSL_SOURCE_DIRECTORY}/.musl-patched")
+	message("-- Patching BoringSSL for musl")
+
+	execute_process(
+		COMMAND patch
+		--directory=${BORINGSSL_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CMAKE_CURRENT_SOURCE_DIR}/patches/boringssl-musl.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+
+	file(WRITE "${BORINGSSL_SOURCE_DIRECTORY}/.musl-patched" "")
+endif()
+
 if (NOT EXISTS "${NGTCP2_SOURCE_DIRECTORY}/.patched")
 	message("-- Patching ngtcp2")
 
