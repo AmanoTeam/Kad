@@ -2,6 +2,7 @@
 #define KAD_H
 
 #include "program_help.h"
+#include "argparse.h"
 
 #define KAD_NAME "Kad"
 #define KAD_VERSION "0.2"
@@ -9,6 +10,6 @@
 
 #define KAD_DESCRIPTION PROGRAM_HELP
 
-int kad_main(int argc, char* argv[]);
+int kad_main(int argc, argv_t** argv);
 
 #endif

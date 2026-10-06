@@ -1,12 +1,24 @@
 #include <stdlib.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <netdb.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <ctype.h>
+
+#if defined(_WIN32)
+	#include <winsock2.h>
+	#include <ws2tcpip.h>
+#endif
+
+#if !defined(_WIN32)
+	#include <arpa/inet.h>
+	#include <netinet/in.h>
+	#include <netdb.h>
+#endif
+
+#if defined(_WIN32) && defined(_UNICODE)
+	#include "wio.h"
+#endif
 
 #include <curl/curl.h>
 
@@ -22,6 +34,7 @@
 #include "kad.h"
 #include "threads.h"
 #include "logging.h"
+#include "socketclose.h"
 
 #if !defined(KAD_DISABLE_SSL_VERIFY)
 	#include "fstream.h"
@@ -73,7 +86,7 @@ static CURLM* curl_multi = NULL;
 #if !defined(KAD_BUILD_SHARED)
 static void sigint_handler(void) {
 	
-	close(fd);
+	socket_close(fd);
 	exit(EXIT_SUCCESS);
 	
 }
@@ -225,7 +238,7 @@ struct curl_pending {
 typedef struct curl_pending curl_pending_t;
 
 static curl_pending_t* curl_pending = NULL;
-static pthread_mutex_t curl_pending_mutex = PTHREAD_MUTEX_INITIALIZER;
+static mutex_t curl_pending_mutex = MUTEX_INIT;
 
 static void* event_loop(void* pointer) {
 	
@@ -249,10 +262,10 @@ static void* event_loop(void* pointer) {
 	(void) pointer;
 	
 	while (1) {
-		pthread_mutex_lock(&curl_pending_mutex);
+		mutex_lock(&curl_pending_mutex);
 		item = curl_pending;
 		curl_pending = NULL;
-		pthread_mutex_unlock(&curl_pending_mutex);
+		mutex_unlock(&curl_pending_mutex);
 		
 		while (item != NULL) {
 			next = item->next;
@@ -378,7 +391,7 @@ static int request_handler(void* pointer) {
 	data = malloc(sizeof(*data));
 	
 	if (data == NULL) {
-		close(fd);
+		socket_close(fd);
 		
 		err = KADERR_MEMORY_ALLOCATE_FAILURE;
 		goto end;
@@ -722,13 +735,13 @@ static int request_handler(void* pointer) {
 	
 	pending->handle = curl;
 	
-	pthread_mutex_lock(&curl_pending_mutex);
+	mutex_lock(&curl_pending_mutex);
 	
 	pending->next = curl_pending;
 	curl_pending = pending;
 	pending = NULL;
 	
-	pthread_mutex_unlock(&curl_pending_mutex);
+	mutex_unlock(&curl_pending_mutex);
 	
 	curl_multi_wakeup(curl_multi);
 	
@@ -758,7 +771,7 @@ static void* handle_request(void* pointer) {
 	
 }
 
-int kad_main(int argc, char* argv[]) {
+int kad_main(int argc, argv_t** argv) {
 	/*
 	const struct sigaction action = {
 		.sa_handler = &sigint_handler
@@ -769,7 +782,9 @@ int kad_main(int argc, char* argv[]) {
 	}
 	*/
 	
-	struct sigaction sigpipe_action;
+	#if !defined(_WIN32)
+		struct sigaction sigpipe_action;
+	#endif
 	
 	struct linger lingerv;
 	
@@ -819,9 +834,25 @@ int kad_main(int argc, char* argv[]) {
 	
 	system_error_t error = {0};
 	
-	memset(&sigpipe_action, 0, sizeof(sigpipe_action));
+	#if defined(_WIN32) && defined(_UNICODE)
+		wio_enable_unicode();
+	#endif
 	
-	sigpipe_action.sa_handler = SIG_IGN;
+	#if defined(_WIN32)
+		WSADATA wsa_data = {0};
+		
+		if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
+			loggln(LOG_ERROR, "[error] could not initialize Winsock (error = %i)", WSAGetLastError());
+			
+			return EXIT_FAILURE;
+		}
+	#endif
+	
+	#if !defined(_WIN32)
+		memset(&sigpipe_action, 0, sizeof(sigpipe_action));
+		
+		sigpipe_action.sa_handler = SIG_IGN;
+	#endif
 	
 	curl_multi = curl_multi_init();
 	
@@ -833,12 +864,14 @@ int kad_main(int argc, char* argv[]) {
 	
 	thread_create(&event_thread, event_loop, NULL);
 	
-	if (sigaction(SIGPIPE, &sigpipe_action, NULL) == -1) {
-		error = get_system_error();
-		loggln(LOG_ERROR, "[error] could not set signal handler: %s", error.message);
-		
-		return EXIT_FAILURE;
-	}
+	#if !defined(_WIN32)
+		if (sigaction(SIGPIPE, &sigpipe_action, NULL) == -1) {
+			error = get_system_error();
+			loggln(LOG_ERROR, "[error] could not set signal handler: %s", error.message);
+			
+			return EXIT_FAILURE;
+		}
+	#endif
 	
 	code = argparse_init(&argparse, argc, argv);
 	
@@ -1035,9 +1068,9 @@ int kad_main(int argc, char* argv[]) {
 	
 	memset(&lingerv, 0, sizeof(lingerv));
 	
-	setsockopt(fd, SOL_SOCKET, SO_LINGER, &lingerv, sizeof(lingerv));
+	setsockopt(fd, SOL_SOCKET, SO_LINGER, (const char*) &lingerv, sizeof(lingerv));
 	
-	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr));
+	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*) &reuseaddr, sizeof(reuseaddr));
 	
 	memset(&addr_in, 0, sizeof(addr_in));
 	
@@ -1067,7 +1100,7 @@ int kad_main(int argc, char* argv[]) {
 	
 	if (bind(fd, sockaddress, addrsize) == -1) {
 		error = get_system_error();
-		close(fd);
+		socket_close(fd);
 		loggln(LOG_ERROR, "[error] could not bind socket: %s", error.message);
 		
 		return EXIT_FAILURE;
@@ -1075,7 +1108,7 @@ int kad_main(int argc, char* argv[]) {
 	
 	if (listen(fd, KAD_DEFAULT_LISTEN_BACKLOG) == -1) {
 		error = get_system_error();
-		close(fd);
+		socket_close(fd);
 		loggln(LOG_ERROR, "[error] could not listen on socket: %s", error.message);
 		
 		return EXIT_FAILURE;
@@ -1092,7 +1125,7 @@ int kad_main(int argc, char* argv[]) {
 		
 		if (cfd == NULL) {
 			error = get_system_error();
-			close(fd);
+			socket_close(fd);
 			loggln(LOG_ERROR, "[error] could not allocate memory for client socket: %s", error.message);
 			
 			return EXIT_FAILURE;
@@ -1102,7 +1135,7 @@ int kad_main(int argc, char* argv[]) {
 		
 		if (*cfd == -1) {
 			error = get_system_error();
-			close(fd);
+			socket_close(fd);
 			loggln(LOG_ERROR, "[error] could not accept incoming socket connection: %s", error.message);
 			
 			return EXIT_FAILURE;
@@ -1111,7 +1144,7 @@ int kad_main(int argc, char* argv[]) {
 		status = getnameinfo((struct sockaddr*) &client_address, client_address_size, host, sizeof(host), servname, sizeof(servname), NI_NUMERICHOST | NI_NUMERICSERV);
 		
 		if (status != 0) {
-			close(fd);
+			socket_close(fd);
 			loggln(LOG_ERROR, "[error] could not get address info: %s", gai_strerror(status));
 			
 			return EXIT_FAILURE;
@@ -1145,9 +1178,13 @@ int kad_main(int argc, char* argv[]) {
 }
 
 #if !defined(KAD_BUILD_SHARED)
-int main(int argc, char* argv[]) {
-	
-	return kad_main(argc, argv);
-	
-}
+	#if defined(_WIN32) && defined(_UNICODE)
+		int wmain(const int argc, wchar_t** const argv) {
+			return kad_main(argc, argv);
+		}
+	#else
+		int main(const int argc, char** const argv) {
+			return kad_main(argc, argv);
+		}
+	#endif
 #endif

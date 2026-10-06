@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#undef DELETE
+
 enum HTTPMethod {
 	GET = 1,
 	HEAD = 2,

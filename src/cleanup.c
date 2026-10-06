@@ -1,21 +1,18 @@
 #include <curl/curl.h>
 
-#if !defined(_WIN32)
-	#include <unistd.h>
-#endif
-
 #include "cleanup.h"
 #include "http.h"
 #include "ssl.h"
 #include "transferdata.h"
 #include "buffer.h"
+#include "socketclose.h"
 
 void __curl_slist_free_all(struct curl_slist** ptr) {
 	curl_slist_free_all(*ptr);
 }
 
 void __close(int* ptr) {
-	close(*ptr);
+	socket_close(*ptr);
 }
 
 void __http_request_free(http_request_t* ptr) {
@@ -45,7 +42,7 @@ void transferdata_close(transferdata_t* const data) {
 	ssl_close(&data->context);
 	
 	if (data->fd > 0) {
-		close(data->fd);
+		socket_close(data->fd);
 	}
 	
 	http_request_free(&data->request);

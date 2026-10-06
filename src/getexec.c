@@ -63,23 +63,14 @@ char* get_app_filename(void) {
 		#if defined(_UNICODE)
 			wchar_t* wfilename = NULL;
 			
-			filenames = GetModuleFileNameW(0, NULL, 0);
-			
-			if (filenames == 0) {
-				err = -1;
-				goto end;
-			}
-			
-			filenames++;
-			
-			wfilename = malloc(((size_t) filenames) * sizeof(*wfilename));
+			wfilename = malloc(((size_t) 32768) * sizeof(*wfilename));
 			
 			if (wfilename == NULL) {
 				err = -1;
 				goto end;
 			}
 			
-			filenames = GetModuleFileNameW(0, wfilename, filenames);
+			filenames = GetModuleFileNameW(0, wfilename, 32768);
 			
 			if (filenames == 0) {
 				err = -1;
@@ -95,9 +86,6 @@ char* get_app_filename(void) {
 				0,
 				NULL
 			);
-			
-			free(wfilename);
-			wfilename = NULL;
 			
 			if (handle == INVALID_HANDLE_VALUE) {
 				err = -1;
@@ -118,25 +106,6 @@ char* get_app_filename(void) {
 			
 			filenames++;
 			
-			wfilename = malloc(((size_t) filenames) * sizeof(*wfilename));
-			
-			if (wfilename == NULL) {
-				err = -1;
-				goto end;
-			}
-			
-			filenames = GetFinalPathNameByHandleW(
-				handle,
-				wfilename,
-				filenames,
-				VOLUME_NAME_DOS | FILE_NAME_NORMALIZED
-			);
-			
-			if (filenames == 0) {
-				err = -1;
-				goto end;
-			}
-			
 			app_filename = malloc((size_t) filenames);
 			
 			if (app_filename == NULL) {
@@ -144,9 +113,34 @@ char* get_app_filename(void) {
 				goto end;
 			}
 			
-			if (WideCharToMultiByte(CP_UTF8, 0, wfilename, -1, app_filename, (int) filenames, NULL, NULL) == 0) {
-				err = -1;
-				goto end;
+			{
+				wchar_t* wpath = malloc(((size_t) filenames) * sizeof(*wpath));
+				
+				if (wpath == NULL) {
+					err = -1;
+					goto end;
+				}
+				
+				if (GetFinalPathNameByHandleW(
+					handle,
+					wpath,
+					filenames,
+					VOLUME_NAME_DOS | FILE_NAME_NORMALIZED
+				) == 0) {
+					free(wpath);
+					
+					err = -1;
+					goto end;
+				}
+				
+				if (WideCharToMultiByte(CP_UTF8, 0, wpath, -1, app_filename, (int) filenames, NULL, NULL) == 0) {
+					free(wpath);
+					
+					err = -1;
+					goto end;
+				}
+				
+				free(wpath);
 			}
 		#else
 			app_filename = malloc(PATH_MAX);

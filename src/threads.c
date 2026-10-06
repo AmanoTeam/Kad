@@ -62,3 +62,23 @@ int thread_wait(thread_t* const thread) {
 	
 	
 }
+
+void mutex_lock(mutex_t* const mutex) {
+	
+	#if defined(_WIN32)
+		AcquireSRWLockExclusive(mutex);
+	#else
+		pthread_mutex_lock(mutex);
+	#endif
+	
+}
+
+void mutex_unlock(mutex_t* const mutex) {
+	
+	#if defined(_WIN32)
+		ReleaseSRWLockExclusive(mutex);
+	#else
+		pthread_mutex_unlock(mutex);
+	#endif
+	
+}

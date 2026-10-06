@@ -90,6 +90,7 @@ set(
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/strsub.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/urlencode.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/urldecode.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/socketclose.c"
 	"${PICOHTTPPARSER_SOURCE_DIRECTORY}/picohttpparser.c"
 )
 
@@ -188,6 +189,11 @@ set(CURL_ZSTD ON)
 
 if (WIN32)
 	set(ENABLE_UNICODE ON)
+	set(OPENSSL_NO_ASM ON)
+endif()
+
+if (WIN32 AND KAD_STATIC)
+	add_compile_definitions(NGHTTP2_STATICLIB NGTCP2_STATICLIB NGHTTP3_STATICLIB)
 endif()
 
 # nghttp2
@@ -220,7 +226,7 @@ else()
 endif()
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "^i[3-6]86$")
-	add_compile_options(-msse2)
+	add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:-msse2>")
 endif()
 
 # zlib
@@ -330,7 +336,7 @@ endif()
 file(LOCK "${CMAKE_CURRENT_SOURCE_DIR}/lock" RELEASE)
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
-	add_compile_options($<$<CONFIG:Release>:-fipa-pta>)
+	add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:$<$<CONFIG:Release>:-fipa-pta>>)
 endif()
 
 set(OPENSSL_INCLUDE_DIR "${BORINGSSL_SOURCE_DIRECTORY}/include")
@@ -340,6 +346,12 @@ set(OPENSSL_SSL_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}
 
 file(WRITE "${OPENSSL_SSL_LIBRARY}" "")
 file(WRITE "${OPENSSL_CRYPTO_LIBRARY}" "")
+
+set(OPENSSL_INCLUDE_DIR "${BORINGSSL_SOURCE_DIRECTORY}/include" CACHE FILEPATH "BoringSSL include directory")
+set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_CRYPTO_LIBRARY}" CACHE FILEPATH "BoringSSL crypto library")
+set(OPENSSL_SSL_LIBRARY "${OPENSSL_SSL_LIBRARY}" CACHE FILEPATH "BoringSSL ssl library")
+set(LIB_EAY "${OPENSSL_CRYPTO_LIBRARY}" CACHE FILEPATH "BoringSSL crypto library")
+set(SSL_EAY "${OPENSSL_SSL_LIBRARY}" CACHE FILEPATH "BoringSSL ssl library")
 
 set(
 	NGHTTP2_INCLUDE_DIR
@@ -355,7 +367,13 @@ set(
 	"${CMAKE_CURRENT_BINARY_DIR}/submodules/zlib"
 )
 
-set(ZLIB_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}z${KAD_LIBRARY_SUFFIX}")
+if (WIN32)
+	set(KAD_ZLIB_SUFFIX "s")
+else()
+	set(KAD_ZLIB_SUFFIX "")
+endif()
+
+set(ZLIB_LIBRARY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${KAD_LIBRARY_PREFIX}z${KAD_ZLIB_SUFFIX}${KAD_LIBRARY_SUFFIX}")
 
 set(BROTLI_INCLUDE_DIR "${BROTLI_SOURCE_DIRECTORY}/c/include")
 
@@ -567,7 +585,13 @@ set_target_properties(
 	LINKER_LANGUAGE CXX
 )
 
-if (KAD_STATIC AND NOT (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+if (KAD_STATIC AND WIN32)
+	target_link_options(
+		kad
+		PRIVATE
+		-static
+	)
+elseif (KAD_STATIC AND NOT (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 	target_link_options(
 		kad
 		PRIVATE
@@ -580,6 +604,16 @@ if (NOT KAD_SSL_VERIFY)
 		kad
 		PRIVATE
 		KAD_DISABLE_SSL_VERIFY
+	)
+endif()
+
+if (WIN32)
+	target_compile_definitions(
+		kad
+		PRIVATE
+		WIN32_LEAN_AND_MEAN
+		NOCRYPT
+		NOMINMAX
 	)
 endif()
 
@@ -675,6 +709,14 @@ target_link_libraries(
 	crypto
 	${KAD_CURL_LIBRARY}
 )
+
+if (WIN32)
+	target_link_libraries(
+		kad
+		PRIVATE
+		ws2_32
+	)
+endif()
 
 if (KAD_STATIC)
 	install(
