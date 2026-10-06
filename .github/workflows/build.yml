@@ -19,44 +19,7 @@ jobs:
     strategy:
       matrix:
         target: [
-          # Windows
-          'x86_64-w64-mingw32',
-          'i686-w64-mingw32',
-          
-          # macOS
-          'aarch64-unknown-apple-darwin',
-          'x86_64-unknown-apple-darwin',
-          
-          # Linux (glibc)
-          'x86_64-unknown-linux-gnu2.23',
-          'i386-unknown-linux-gnu2.23',
-          'arm-unknown-linux-gnueabihf2.23',
-          'aarch64-unknown-linux-gnu2.23',
-          
-          # Linux (musl)
-          'aarch64-unknown-linux-musl',
           'x86_64-unknown-linux-musl',
-          'armv6-unknown-linux-musleabihf',
-          'armv7-unknown-linux-musleabihf',
-          'i386-unknown-linux-musl',
-          
-          # FreeBSD
-          'x86_64-unknown-freebsd',
-          'aarch64-unknown-freebsd',
-          'i386-unknown-freebsd',
-         
-          # NetBSD
-          'i386-unknown-netbsdelf',
-          'x86_64-unknown-netbsd',
-          
-          # DragonFly BSD
-          'x86_64-unknown-dragonfly',
-          
-          # Android
-          'x86_64-unknown-linux-android',
-          'i686-unknown-linux-android21',
-          'aarch64-unknown-linux-android',
-          'armv7-unknown-linux-androideabi21',
         ]
     steps:
     - name: Checkout repository
@@ -168,6 +131,7 @@ jobs:
             -DCMAKE_BUILD_TYPE='Release' \
             -DKAD_LTO='ON' \
             -DKAD_STATIC='ON' \
+            -DCMAKE_VERBOSE_MAKEFILE='ON' \
             -S "${PWD}" \
             -B "${PWD}/build"
             
