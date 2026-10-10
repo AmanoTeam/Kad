@@ -11,15 +11,14 @@ You can obtain precompiled binaries from the [releases](https://github.com/Amano
 Clone this repository and fetch all submodules
 
 ```bash
-git clone --depth='1' 'https://github.com/AmanoTeam/Kad.git'
-cd Kad
-git submodule update --init --depth='1'
+git clone 'https://github.com/AmanoTeam/Kad.git'
+git -C 'Kad' submodule update --init --depth='1'
 ```
 
 Configure, build and install:
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=MinSizeRel
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build ./build
 cmake --install ./build
 ```
@@ -89,11 +88,5 @@ curl_setopt($handle, CURLOPT_SSL_VERIFYHOST, 0);
 $response = curl_exec($handle);
 ```
 
-## HTTPS connections
-
-Kad uses a self-signed [certificate](./tools/certificates/kad.crt) to decrypt requests made to HTTPS websites, so your HTTP client will refuse sending requests unless you disable SSL verification (not recommended).
-
-## Limitations
-
-- Only supports impersonating Chrome, Edge and Safari
-
+> [!IMPORTANT]
+> Kad uses a self-signed [certificate](./tools/certificates/kad.crt) to decrypt requests made to HTTPS websites, so your HTTP client will refuse sending requests unless you disable SSL verification.
