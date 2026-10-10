@@ -60,7 +60,7 @@ Kad is just a proxy server; you need an HTTP client to start using it.
 With curl:
 
 ```bash
-$ curl --proxy 'http://127.0.0.1:4000' --url 'http://example.com'
+$ curl --proxy 'http://127.0.0.1:4000' --insecure --url 'https://example.com'
 ```
 
 With Python + Requests:
@@ -73,7 +73,7 @@ proxies = {
     "https": "http://127.0.0.1:4000"
 }
 
-response = requests.get(url = "http://example.com", proxies = proxies)
+response = requests.get(url = "https://example.com", proxies = proxies, verify = False)
 ```
 
 With PHP + curl:
@@ -81,17 +81,17 @@ With PHP + curl:
 ```php
 <?php
 $handle = curl_init();
-curl_setopt($handle, CURLOPT_URL, "http://example.com");
+curl_setopt($handle, CURLOPT_URL, "https://example.com");
 curl_setopt($handle, CURLOPT_PROXY, "http://127.0.0.1:4000");
+curl_setopt($handle, CURLOPT_SSL_VERIFYPEER, false);
+curl_setopt($handle, CURLOPT_SSL_VERIFYHOST, 0);
 
 $response = curl_exec($handle);
 ```
 
 ## HTTPS connections
 
-Kad uses a self-signed certificate so it can decrypt requests made to HTTPS websites. Most HTTP clients will refuse sending requests to servers like this.
-
-To circumvent this, you need to disable SSL certificate validation in your HTTP client (not recommended) or add Kad's [certificate](./tools/certificates/kad.crt) to your trust store (e.g., `/etc/ssl/certs`).
+Kad uses a self-signed [certificate](./tools/certificates/kad.crt) to decrypt requests made to HTTPS websites, so your HTTP client will refuse sending requests unless you disable SSL verification (not recommended).
 
 ## Limitations
 
