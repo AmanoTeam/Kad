@@ -14,7 +14,7 @@ permissions: write-all
 
 jobs:
   cross-build:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     continue-on-error: true
     strategy:
       matrix:
@@ -61,6 +61,19 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@main
+    - name: Install CMake
+      run: |
+        declare -r CMAKE_TAG='nightly'
+        declare -r CMAKE_TARBALL='/tmp/toolchain.tar.xz'
+        declare -r CMAKE_URL="https://github.com/AmanoTeam/cmake-builds/releases/download/${CMAKE_TAG}/x86_64-unknown-linux-gnu.tar.xz"
+        
+        curl --connect-timeout '10' --retry '15' --retry-all-errors --fail --silent --location --url "${CMAKE_URL}" --output "${CMAKE_TARBALL}"
+        tar --directory="$(dirname "${CMAKE_TARBALL}")" --extract --file="${CMAKE_TARBALL}"
+        
+        export CMAKE_HOME='/tmp/cmake'
+        export PATH="${CMAKE_HOME}/bin:${PATH}"
+        
+        echo "PATH=${PATH}" >> "${GITHUB_ENV}"
     - name: Cross-compile kad to ${{ matrix.target }}
       working-directory: './'
       env: 
@@ -155,11 +168,6 @@ jobs:
             export PATH="${PINO_HOME}/bin:${PATH}"
             
             source "${PINO_HOME}/build/autotools/${{ matrix.target }}.sh"
-            
-            sudo sed \
-                --in-place \
-                '/CMAKE_SHARED_LIBRARY_RUNTIME_C_FLAG/d' \
-                '/usr/local/share/cmake-'*'/Modules/Platform/Android.cmake'
         fi
         
         echo "CROSS_COMPILE_TRIPLET=${CROSS_COMPILE_TRIPLET}" >> "${GITHUB_ENV}"
