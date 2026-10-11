@@ -71,6 +71,7 @@ set(
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/buffer.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/errors.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/systemerror.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/resources.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ssl.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/callbacks.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/http.c"

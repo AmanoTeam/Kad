@@ -30,6 +30,7 @@
 #include "transferdata.h"
 #include "errors.h"
 #include "systemerror.h"
+#include "resources.h"
 #include "argparse.h"
 #include "kad.h"
 #include "threads.h"
@@ -853,6 +854,12 @@ int kad_main(int argc, argv_t** argv) {
 		
 		sigpipe_action.sa_handler = SIG_IGN;
 	#endif
+	
+	if (resources_increase_maxfd() == -1) {
+		loggln(LOG_ERROR, "[error] could not increase the maximum open files limit");
+		
+		return EXIT_FAILURE;
+	}
 	
 	curl_multi = curl_multi_init();
 	
