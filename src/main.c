@@ -77,7 +77,7 @@ static const char* const IMPERSONATE_HEADERS[] = {
 		PATHSEP_M
 		"cert.pem";
 	
-	static struct curl_blob curl_blob_global = {0};
+	static char* ca_bundle_global = NULL;
 #endif
 
 static int fd = 0;
@@ -102,7 +102,7 @@ static char doh_url[4096] = {0};
 #if !defined(KAD_DISABLE_SSL_VERIFY)
 static int load_ssl_certificates(void) {
 	/*
-	Loads the CA certificate bundle into memory for cURL to use.
+	Locates the CA certificate bundle file for cURL to use.
 	
 	Returns (0) on success, (-1) on error.
 	*/
@@ -115,7 +115,6 @@ static int load_ssl_certificates(void) {
 	fstream_t* stream = NULL;
 	
 	int64_t file_size = 0;
-	ssize_t size = 0;
 	
 	system_error_t error = {0};
 	
@@ -177,32 +176,6 @@ static int load_ssl_certificates(void) {
 		goto end;
 	}
 	
-	curl_blob_global.data = malloc((size_t) file_size);
-	
-	if (curl_blob_global.data == NULL) {
-		error = get_system_error();
-		loggln(LOG_ERROR, "[error] could not allocate memory: %s", error.message);
-		
-		fstream_close(stream);
-		stream = NULL;
-		
-		err = KADERR_MEMORY_ALLOCATE_FAILURE;
-		goto end;
-	}
-	
-	size = fstream_read(stream, curl_blob_global.data, (size_t) file_size);
-	
-	if (size == FSTREAM_ERROR) {
-		error = get_system_error();
-		loggln(LOG_ERROR, "[error] could not read contents of file at '%s': %s", ca_bundle, error.message);
-		
-		fstream_close(stream);
-		stream = NULL;
-		
-		err = KADERR_FSTREAM_READ_FAILURE;
-		goto end;
-	}
-	
 	if (fstream_close(stream) == FSTREAM_ERROR) {
 		error = get_system_error();
 		loggln(LOG_ERROR, "[error] could not close file at '%s': %s", ca_bundle, error.message);
@@ -215,7 +188,8 @@ static int load_ssl_certificates(void) {
 	
 	stream = NULL;
 	
-	curl_blob_global.len = (size_t) size;
+	ca_bundle_global = ca_bundle;
+	ca_bundle = NULL;
 	
 	end:;
 	
@@ -545,7 +519,7 @@ static int request_handler(void* pointer) {
 			goto end;
 		}
 	#else
-		if (curl_easy_setopt(curl, CURLOPT_CAINFO_BLOB, &curl_blob_global) != CURLE_OK) {
+		if (curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle_global) != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
 		}

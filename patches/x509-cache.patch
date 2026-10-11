@@ -1,0 +1,34 @@
+Do not auto-fill the configure-time default CApath when the application
+supplied its own CA (CAINFO file or blob). Otherwise conn_config->CApath is
+non-NULL on every connection, which permanently disables the shared X509
+store cache in lib/vtls/openssl.c (cache_criteria_met requires the config to
+come exclusively from a CAfile), forcing a full CA bundle re-parse and a
+~500 KB retained X509 store per connection.
+
+Applied to both the origin and the proxy configuration paths.
+
+Reported upstream: https://github.com/curl/curl (X509 store cache never
+engages on builds with CURL_CA_PATH defined).
+
+--- a/lib/vtls/vtls_config.c
++++ b/lib/vtls/vtls_config.c
+@@ -335,7 +335,8 @@ static CURLcode ssl_easy_config_complete(struct Curl_easy *data,
+       sslc->primary.native_ca_store = TRUE;
+ #endif
+ #ifdef CURL_CA_PATH
+-    if(!sslc->custom_capath && !CURL_EASY_STR(data, STRING_SSL_CAPATH)) {
++    if(!sslc->custom_capath && !sslc->custom_cafile && !sslc->custom_cablob &&
++       !CURL_EASY_STR(data, STRING_SSL_CAPATH)) {
+       result = Curl_setstropt(data, STRING_SSL_CAPATH, CURL_CA_PATH);
+       if(result)
+         return result;
+@@ -419,7 +420,7 @@ static CURLcode ssl_easy_config_complete(struct Curl_easy *data,
+       sslc->primary.native_ca_store = TRUE;
+ #endif
+ #ifdef CURL_CA_PATH
+-    if(!sslc->custom_capath &&
++    if(!sslc->custom_capath && !sslc->custom_cafile && !sslc->custom_cablob &&
+        !CURL_EASY_STR(data, STRING_SSL_CAPATH_PROXY)) {
+       result = Curl_setstropt(data, STRING_SSL_CAPATH_PROXY, CURL_CA_PATH);
+       if(result)
+         return result;

@@ -292,6 +292,20 @@ if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.android-patched")
 	file(WRITE "${CURL_SOURCE_DIRECTORY}/.android-patched" "")
 endif()
 
+if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.x509-cache-patched")
+	message("-- Patching cURL X509 cache")
+
+	execute_process(
+		COMMAND patch
+		--directory=${CURL_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CMAKE_CURRENT_SOURCE_DIR}/patches/x509-cache.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+
+	file(WRITE "${CURL_SOURCE_DIRECTORY}/.x509-cache-patched" "")
+endif()
+
 if (NOT EXISTS "${BORINGSSL_SOURCE_DIRECTORY}/.patched")
 	message("-- Patching BoringSSL")
 
