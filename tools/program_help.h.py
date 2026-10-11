@@ -55,6 +55,27 @@ parser.add_argument(
 	help = "Set output verbosity. Valid levels: 'quiet', 'standard', 'warning', 'error', 'info', 'verbose'. [default: verbose]"
 )
 
+parser.add_argument(
+	"--proxy",
+	metavar = "URL",
+	required = False,
+	help = "Forward all requests through this proxy server."
+)
+
+parser.add_argument(
+	"--doh-url",
+	metavar = "URL",
+	required = False,
+	help = "Use this DoH server for hostname resolution."
+)
+
+parser.add_argument(
+	"--cacert",
+	metavar = "FILE",
+	required = False,
+	help = "Overwrite the path to the CA certificate bundle to use."
+)
+
 os.environ["LINES"] = "1000"
 os.environ["COLUMNS"] = "1000"
 

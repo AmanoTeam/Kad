@@ -100,48 +100,65 @@ static char proxy_url[4096] = {0};
 static char doh_url[4096] = {0};
 
 #if !defined(KAD_DISABLE_SSL_VERIFY)
-static int load_ssl_certificates(void) {
+static int load_ssl_certificates(const char* const cacert) {
 	/*
 	Locates the CA certificate bundle file for cURL to use.
 	
+	If 'cacert' is not NULL and not empty, it is used as the path to the
+	CA certificate bundle instead of the default one.
+	
 	Returns (0) on success, (-1) on error.
 	*/
-	
+
 	int err = KADERR_SUCCESS;
-	
+
 	char* app_directory = NULL;
 	char* ca_bundle = NULL;
-	
+
 	fstream_t* stream = NULL;
-	
+
 	int64_t file_size = 0;
-	
+
 	system_error_t error = {0};
-	
-	app_directory = get_app_directory();
-	
-	if (app_directory == NULL) {
-		loggln(LOG_ERROR, "[error] could not get application directory: %s", strkaderr(KADERR_FS_GET_APP_DIRECTORY_FAILURE));
-		
-		err = KADERR_FS_GET_APP_DIRECTORY_FAILURE;
-		goto end;
+
+	if (cacert != NULL && *cacert != '\0') {
+		ca_bundle = malloc(strlen(cacert) + 1);
+
+		if (ca_bundle == NULL) {
+			error = get_system_error();
+			loggln(LOG_ERROR, "[error] could not allocate memory: %s", error.message);
+
+			err = KADERR_MEMORY_ALLOCATE_FAILURE;
+			goto end;
+		}
+
+		strcpy(ca_bundle, cacert);
+	} else {
+		app_directory = get_app_directory();
+
+		if (app_directory == NULL) {
+			loggln(LOG_ERROR, "[error] could not get application directory: %s", strkaderr(KADERR_FS_GET_APP_DIRECTORY_FAILURE));
+
+			err = KADERR_FS_GET_APP_DIRECTORY_FAILURE;
+			goto end;
+		}
+
+		ca_bundle = malloc(strlen(app_directory) + strlen(CA_CERT_FILENAME) + 1);
+
+		if (ca_bundle == NULL) {
+			error = get_system_error();
+			loggln(LOG_ERROR, "[error] could not allocate memory: %s", error.message);
+
+			err = KADERR_MEMORY_ALLOCATE_FAILURE;
+			goto end;
+		}
+
+		strcpy(ca_bundle, app_directory);
+		strcat(ca_bundle, CA_CERT_FILENAME);
+
+		free(app_directory);
+		app_directory = NULL;
 	}
-	
-	ca_bundle = malloc(strlen(app_directory) + strlen(CA_CERT_FILENAME) + 1);
-	
-	if (ca_bundle == NULL) {
-		error = get_system_error();
-		loggln(LOG_ERROR, "[error] could not allocate memory: %s", error.message);
-		
-		err = KADERR_MEMORY_ALLOCATE_FAILURE;
-		goto end;
-	}
-	
-	strcpy(ca_bundle, app_directory);
-	strcat(ca_bundle, CA_CERT_FILENAME);
-	
-	free(app_directory);
-	app_directory = NULL;
 	
 	stream = fstream_open(ca_bundle, FSTREAM_READ);
 	
@@ -776,6 +793,7 @@ int kad_main(int argc, argv_t** argv) {
 	
 	char address[512] = {0};
 	char loglevel[16] = "verbose";
+	char cacert[4096] = {0};
 	
 	char host[NI_MAXHOST];
 	char servname[NI_MAXSERV];
@@ -951,7 +969,7 @@ int kad_main(int argc, argv_t** argv) {
 			}
 			
 			strcpy(loglevel, argument->value);
-		} else if (strcmp(argument->key, "proxy") == 0 || strcmp(argument->key, "proxy-url") == 0) {
+		} else if (strcmp(argument->key, "proxy") == 0) {
 			if (argument->value == NULL) {
 				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
 
@@ -991,6 +1009,26 @@ int kad_main(int argc, argv_t** argv) {
 			}
 
 			strcpy(doh_url, argument->value);
+		} else if (strcmp(argument->key, "cacert") == 0) {
+			if (argument->value == NULL) {
+				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			size = strlen(argument->value);
+
+			if (size > (sizeof(cacert) - 1)) {
+				loggln(LOG_ERROR, "[error] cacert path exceeds max buffer size: %s", argument->value);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			strcpy(cacert, argument->value);
 		} else if (strcmp(argument->key, "v") == 0 || strcmp(argument->key, "version") == 0) {
 			argparse_free(&argparse);
 			
@@ -1031,7 +1069,7 @@ int kad_main(int argc, argv_t** argv) {
 	loglevel_set(level);
 	
 	#if !defined(KAD_DISABLE_SSL_VERIFY)
-		err = load_ssl_certificates();
+		err = load_ssl_certificates(cacert);
 		
 		if (err != KADERR_SUCCESS) {
 			loggln(LOG_ERROR, "[error] could not load CA bundle: %s", strkaderr(err));

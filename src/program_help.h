@@ -6,7 +6,7 @@ This file is auto-generated. Use the tool at ../tools/program_help.h.py to regen
 #define PROGRAM_HELP_H
 
 #define PROGRAM_HELP \
-	"usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET] [--loglevel LOGLEVEL]\n"\
+	"usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE]\n"\
 	"\n"\
 	"A simple HTTP proxy server that forwards all requests through curl-impersonate.\n"\
 	"\n"\
@@ -17,6 +17,9 @@ This file is auto-generated. Use the tool at ../tools/program_help.h.py to regen
 	"  --port PORT          Bind socket to this port. [default: 4000]\n"\
 	"  --target TARGET      Impersonate this target. [default: chrome116]\n"\
 	"  --loglevel LOGLEVEL  Set output verbosity. Valid levels: 'quiet', 'standard', 'warning', 'error', 'info', 'verbose'. [default: verbose]\n"\
+	"  --proxy URL          Forward all requests through this proxy server.\n"\
+	"  --doh-url URL        Use this DoH server for hostname resolution.\n"\
+	"  --cacert FILE        Overwrite the path to the CA certificate bundle to use.\n"\
 	"\n"\
 	"Note, options that take a value must use an equal sign (e.g. --host=HOST).\n"\
 
