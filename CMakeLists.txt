@@ -570,6 +570,7 @@ if (KAD_LIBRARY)
 		kad
 		SHARED
 		${KAD_SOURCE_FILES}
+		${KAD_JNI_SOURCE_FILES}
 	)
 	
 	target_compile_definitions(
@@ -578,25 +579,13 @@ if (KAD_LIBRARY)
 		KAD_LIBRARY
 	)
 	
-	add_library(
-		kad-jni
-		SHARED
-		${KAD_JNI_SOURCE_FILES}
-	)
-	
-	target_link_libraries(
-		kad-jni
-		PRIVATE
-		kad
-	)
-	
-	set_target_properties(
-		kad-jni
-		PROPERTIES
-		BUILD_RPATH "$ORIGIN"
-	)
-	
-	list(APPEND TARGETS kad-jni)
+	if (NOT WIN32 AND NOT APPLE)
+		target_link_options(
+			kad
+			PRIVATE
+			"-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/version_script.map"
+		)
+	endif()
 	
 	if (NOT ANDROID AND DEFINED ENV{JAVA_HOME})
 		set(KAD_JNI_PLATFORM "linux")
@@ -608,7 +597,7 @@ if (KAD_LIBRARY)
 		endif()
 		
 		target_include_directories(
-			kad-jni
+			kad
 			PRIVATE
 			"$ENV{JAVA_HOME}/include"
 			"$ENV{JAVA_HOME}/include/${KAD_JNI_PLATFORM}"
