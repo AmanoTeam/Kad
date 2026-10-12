@@ -1,8 +1,6 @@
 {
 	global:
 		Java_*;
-		JNI_OnLoad;
-		JNI_OnUnload;
 		kad_*;
 	local:
 		*;
