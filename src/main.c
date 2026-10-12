@@ -99,6 +99,8 @@ static char proxy_url[4096] = {0};
 
 static char doh_url[4096] = {0};
 
+static char dns_servers[512] = {0};
+
 #if !defined(KAD_DISABLE_SSL_VERIFY)
 static int load_ssl_certificates(const char* const cacert) {
 	/*
@@ -487,7 +489,7 @@ static int request_handler(void* pointer) {
 		goto end;
 	}
 	
-	if (curl_easy_setopt(curl, CURLOPT_DNS_SERVERS, "8.8.8.8,8.8.4.4") != CURLE_OK) {
+	if (curl_easy_setopt(curl, CURLOPT_DNS_SERVERS, *dns_servers != '\0' ? dns_servers : "8.8.8.8,8.8.4.4") != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
@@ -1009,6 +1011,26 @@ int kad_main(int argc, argv_t** argv) {
 			}
 
 			strcpy(doh_url, argument->value);
+		} else if (strcmp(argument->key, "dns-servers") == 0) {
+			if (argument->value == NULL) {
+				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			size = strlen(argument->value);
+
+			if (size > (sizeof(dns_servers) - 1)) {
+				loggln(LOG_ERROR, "[error] dns servers string exceeds max buffer size: %s", argument->value);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			strcpy(dns_servers, argument->value);
 		} else if (strcmp(argument->key, "cacert") == 0) {
 			if (argument->value == NULL) {
 				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);

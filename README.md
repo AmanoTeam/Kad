@@ -29,7 +29,7 @@ Available options:
 
 ```
 $ kad --help
-usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE]
+usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE] [--dns-servers LIST]
 
 A simple HTTP proxy server that forwards all requests through curl-impersonate.
 
@@ -43,6 +43,7 @@ options:
   --proxy URL          Forward all requests through this proxy server.
   --doh-url URL        Use this DoH server for hostname resolution.
   --cacert FILE        Overwrite the path to the CA certificate bundle to use.
+  --dns-servers LIST   Comma-separated list of DNS servers to use. [default: 8.8.8.8,8.8.4.4]
 
 Note, options that take a value must use an equal sign. E.g. --host=HOST
 ```
