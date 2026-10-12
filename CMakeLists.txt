@@ -306,6 +306,20 @@ if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.x509-cache-patched")
 	file(WRITE "${CURL_SOURCE_DIRECTORY}/.x509-cache-patched" "")
 endif()
 
+if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.http3-patched")
+	message("-- Patching cURL HTTP/3 support in impersonate targets")
+
+	execute_process(
+		COMMAND patch
+		--directory=${CURL_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CMAKE_CURRENT_SOURCE_DIR}/patches/http3.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+
+	file(WRITE "${CURL_SOURCE_DIRECTORY}/.http3-patched" "")
+endif()
+
 if (NOT EXISTS "${BORINGSSL_SOURCE_DIRECTORY}/.patched")
 	message("-- Patching BoringSSL")
 

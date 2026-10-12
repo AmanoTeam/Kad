@@ -1,0 +1,38 @@
+--- a/lib/impersonate.c
++++ b/lib/impersonate.c	2026-10-12 02:15:59.052728099 +0000
+@@ -804,7 +804,7 @@
+     .target = "chrome145",
+     .alias = "chrome145",
+     .quic_initial_packet_number = 1,
+-    .httpversion = CURL_HTTP_VERSION_2_0,
++    .httpversion = CURL_HTTP_VERSION_3,
+     .ssl_version = CURL_SSLVERSION_TLSv1_2 | CURL_SSLVERSION_MAX_DEFAULT,
+     .ciphers =
+       "TLS_AES_128_GCM_SHA256:"
+@@ -884,7 +884,7 @@
+     .target = "chrome146",
+     .alias = "chrome146",
+     .quic_initial_packet_number = 1,
+-    .httpversion = CURL_HTTP_VERSION_2_0,
++    .httpversion = CURL_HTTP_VERSION_3,
+     .ssl_version = CURL_SSLVERSION_TLSv1_2 | CURL_SSLVERSION_MAX_DEFAULT,
+     .ciphers =
+       "TLS_AES_128_GCM_SHA256:"
+@@ -964,7 +964,7 @@
+     .target = "chrome150",
+     .alias = "chrome150",
+     .quic_initial_packet_number = 1,
+-    .httpversion = CURL_HTTP_VERSION_2_0,
++    .httpversion = CURL_HTTP_VERSION_3,
+     .ssl_version = CURL_SSLVERSION_TLSv1_2 | CURL_SSLVERSION_MAX_DEFAULT,
+     .ciphers =
+       "TLS_AES_128_GCM_SHA256:"
+@@ -1455,7 +1455,7 @@
+     .target = "firefox147",
+     .alias = "firefox147",
+     .quic_initial_packet_number = -1,
+-    .httpversion = CURL_HTTP_VERSION_2_0,
++    .httpversion = CURL_HTTP_VERSION_3,
+     .ssl_version = CURL_SSLVERSION_TLSv1_2 | CURL_SSLVERSION_MAX_DEFAULT,
+     .ciphers =
+       "TLS_AES_128_GCM_SHA256:"
