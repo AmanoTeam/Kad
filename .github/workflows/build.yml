@@ -179,7 +179,7 @@ jobs:
             -S "${PWD}" \
             -B "${PWD}/build"
             
-        cmake --build "${PWD}/build" -- --jobs
+        cmake --build "${PWD}/build" -- --jobs="$(nproc)"
         cmake --install "${PWD}/build" --strip
     - name: Generate tarball
       run: |
