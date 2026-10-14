@@ -64,6 +64,7 @@ static const char* const IMPERSONATE_HEADERS[] = {
 	"Upgrade-Insecure-Requests",
 	"Accept",
 	"User-Agent",
+	"X-Requested-With",
 	"Sec-Fetch-Site",
 	"Sec-Fetch-Mode",
 	"Sec-Fetch-User",
