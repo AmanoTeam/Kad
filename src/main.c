@@ -1693,8 +1693,6 @@ int kad_main(int argc, argv_t** argv) {
 		return EXIT_FAILURE;
 	}
 	
-	curl_multi_setopt(curl_multi, CURLMOPT_MAXCONNECTS, 512L);
-	
 	thread_create(&event_thread, event_loop, NULL);
 	
 	#if !defined(_WIN32)
