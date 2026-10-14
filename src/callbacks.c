@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdio.h>
 
 #include <curl/curl.h>
 
@@ -41,7 +42,11 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 		}
 		
 		memcpy(dest + offset, data->request.body.content, buffered);
-		
+
+		#if defined(KAD_CAPTURE)
+			capture_request_body(&data->capture, data->request.body.content, buffered);
+		#endif
+
 		memmove(data->request.body.content, data->request.body.content + buffered, data->request.body.size - buffered);
 		data->request.body.size -= buffered;
 		
@@ -67,7 +72,11 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 		}
 		
 		memcpy(dest + offset, chunk, (size_t) rsize);
-		
+
+		#if defined(KAD_CAPTURE)
+			capture_request_body(&data->capture, chunk, (size_t) rsize);
+		#endif
+
 		offset += (size_t) rsize;
 		data->remaining -= (size_t) rsize;
 	}
@@ -95,14 +104,70 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 	const size_t chunk_size = size * nmemb;
 	
 	const ssize_t wsize = (data->is_secure) ? ssl_send(context, ptr, chunk_size) : send(data->fd, ptr, chunk_size, 0);
-	
+
 	if (wsize == -1) {
 		return CURL_WRITEFUNC_ERROR;
 	}
-	
+
+	#if defined(KAD_CAPTURE)
+		capture_response_body(&data->capture, ptr, chunk_size);
+	#endif
+
 	return chunk_size;
-	
+
 }
+
+#if defined(KAD_CAPTURE)
+int debug_callback(CURL* handle, curl_infotype type, char* data, size_t size, void* userp) {
+
+	transferdata_t* const td = (transferdata_t*) userp;
+
+	const char* prefix = NULL;
+
+	/* cURL creates internal easy handles (e.g., for DoH) that inherit the
+	   debug callback; ignore them. */
+
+	if (handle != td->curl) {
+		return 0;
+	}
+
+	if (type == CURLINFO_HEADER_OUT) {
+		capture_request_headers(&td->capture, data, size);
+	}
+
+	/* replicate cURL's default verbose output, as it is now routed here
+	   instead of being written to standard error */
+
+	if (loglevel_get() == LOG_VERBOSE) {
+		switch (type) {
+			case CURLINFO_TEXT: {
+				prefix = "* ";
+				break;
+			}
+			case CURLINFO_HEADER_IN: {
+				prefix = "< ";
+				break;
+			}
+			case CURLINFO_HEADER_OUT: {
+				prefix = "> ";
+				break;
+			}
+			default: {
+				prefix = NULL;
+				break;
+			}
+		}
+
+		if (prefix != NULL) {
+			fwrite(prefix, 2, 1, stderr);
+			fwrite(data, size, 1, stderr);
+		}
+	}
+
+	return 0;
+
+}
+#endif
 
 size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
 	
@@ -158,6 +223,10 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			status = -1;
 			goto end;
 		}
+
+		#if defined(KAD_CAPTURE)
+			capture_response(&data->capture, response.status, data->buffer.s, data->buffer.slength);
+		#endif
 
 		http_version = http_version_stringify(HTTP10);
 		message = http_status_stringify(response.status);

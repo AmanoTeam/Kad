@@ -7,6 +7,10 @@
 #include "buffer.h"
 #include "socketclose.h"
 
+#if defined(KAD_CAPTURE)
+	#include "capture.h"
+#endif
+
 void __curl_slist_free_all(struct curl_slist** ptr) {
 	curl_slist_free_all(*ptr);
 }
@@ -47,7 +51,11 @@ void transferdata_close(transferdata_t* const data) {
 	
 	http_request_free(&data->request);
 	buffer_free(&data->buffer);
-	
+
+	#if defined(KAD_CAPTURE)
+		capture_close(&data->capture);
+	#endif
+
 	free(data);
 	
 }

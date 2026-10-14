@@ -15,6 +15,7 @@ option(KAD_ASAN "Build with AddressSanitizer" OFF)
 option(KAD_PROFILE "Build with gprof instrumentation (-pg)" OFF)
 option(KAD_LIBRARY "Build the project as a shared library" OFF)
 option(KAD_STATIC "Build all dependencies as static libraries" OFF)
+option(KAD_CAPTURE "Enable request and response capturing" ON)
 
 if (KAD_STATIC)
 	set(KAD_LIBRARY_PREFIX "${CMAKE_STATIC_LIBRARY_PREFIX}")
@@ -58,6 +59,7 @@ set(CARES_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/c-ares")
 set(CURL_IMPERSONATE_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/curl-impersonate")
 set(PICOHTTPPARSER_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/picohttpparser")
 set(ZSTD_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/zstd")
+set(JANSSON_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/jansson")
 
 set(
 	INCLUDE_DIRECTORIES
@@ -100,6 +102,10 @@ set(
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/kad-jni.c"
 )
 
+if (KAD_CAPTURE)
+	list(APPEND KAD_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/capture.c")
+endif()
+
 
 if (KAD_STATIC)
 	set(
@@ -115,6 +121,7 @@ if (KAD_STATIC)
 		libzstd_static
 		brotlidec
 		c-ares
+		jansson
 	)
 	
 	set(
@@ -129,6 +136,7 @@ if (KAD_STATIC)
 		brotlidec
 		libzstd_static
 		c-ares
+		jansson
 	)
 else()
 	set(
@@ -232,8 +240,16 @@ endif()
 
 # zlib
 set(ZLIB_BUILD_TESTING OFF)
-
 set(BUILD_TESTING OFF)
+
+# jansson
+if (KAD_STATIC)
+	set(JANSSON_BUILD_SHARED_LIBS OFF)
+else()
+	set(JANSSON_BUILD_SHARED_LIBS ON)
+endif()
+
+set(JANSSON_BUILD_DOCS OFF)
 
 file(LOCK "${CMAKE_CURRENT_SOURCE_DIR}/lock")
 
@@ -263,6 +279,10 @@ file(WRITE "${NGTCP2_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
 file(READ "${NGHTTP3_SOURCE_DIRECTORY}/CMakeLists.txt" FILE_CONTENTS)
 string(REPLACE "(check" "(check_v2" FILE_CONTENTS "${FILE_CONTENTS}")
 file(WRITE "${NGHTTP3_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
+
+file(READ "${JANSSON_SOURCE_DIRECTORY}/CMakeLists.txt" FILE_CONTENTS)
+string(REPLACE "(check" "(check_v3" FILE_CONTENTS "${FILE_CONTENTS}")
+file(WRITE "${JANSSON_SOURCE_DIRECTORY}/CMakeLists.txt" "${FILE_CONTENTS}")
 
 if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.patched")
 	message("-- Patching cURL")
@@ -551,6 +571,12 @@ add_subdirectory(
 	EXCLUDE_FROM_ALL
 )
 
+add_subdirectory(
+	"${JANSSON_SOURCE_DIRECTORY}"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/jansson"
+	EXCLUDE_FROM_ALL
+)
+
 file(REMOVE "${OPENSSL_SSL_LIBRARY}")
 file(REMOVE "${OPENSSL_CRYPTO_LIBRARY}")
 
@@ -665,6 +691,14 @@ if (NOT KAD_SSL_VERIFY)
 	)
 endif()
 
+if (KAD_CAPTURE)
+	target_compile_definitions(
+		kad
+		PRIVATE
+		KAD_CAPTURE
+	)
+endif()
+
 if (WIN32)
 	target_compile_definitions(
 		kad
@@ -766,6 +800,7 @@ target_link_libraries(
 	ssl
 	crypto
 	${KAD_CURL_LIBRARY}
+	jansson
 )
 
 if (WIN32)

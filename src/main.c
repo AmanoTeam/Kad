@@ -28,6 +28,10 @@
 #include "constants.h"
 #include "callbacks.h"
 #include "transferdata.h"
+
+#if defined(KAD_CAPTURE)
+	#include "capture.h"
+#endif
 #include "errors.h"
 #include "systemerror.h"
 #include "resources.h"
@@ -273,12 +277,16 @@ static void* event_loop(void* pointer) {
 				loggln(LOG_ERROR, "[error] could not add handle to multi stack: %s", curl_multi_strerror(code));
 				
 				easy_code = curl_easy_getinfo(handle, CURLINFO_PRIVATE, &data);
-				
+
 				if (easy_code != CURLE_OK) {
 					err = KADERR_CURL_GETINFO_FAILURE;
 					goto end;
 				}
-				
+
+				#if defined(KAD_CAPTURE)
+					capture_end(&data->capture, handle);
+				#endif
+
 				curl_easy_cleanup(handle);
 				transferdata_close(data);
 			}
@@ -310,12 +318,16 @@ static void* event_loop(void* pointer) {
 			}
 			
 			code = curl_multi_remove_handle(curl_multi, msg->easy_handle);
-			
+
 			if (code != CURLM_OK) {
 				err = KADERR_CURL_MULTI_REMOVE_FAILURE;
 				goto end;
 			}
-			
+
+			#if defined(KAD_CAPTURE)
+				capture_end(&data->capture, msg->easy_handle);
+			#endif
+
 			curl_easy_cleanup(msg->easy_handle);
 			transferdata_close(data);
 		}
@@ -464,15 +476,24 @@ static int request_handler(void* pointer) {
 	}
 	
 	loggln(LOG_INFO, "[info] client request to %s", data->request.uri);
-	
+
+	#if defined(KAD_CAPTURE)
+		/* capturing is best-effort, failures never affect the request being forwarded */
+		capture_init(&data->capture, &data->request);
+	#endif
+
 	curl_global_init(CURL_GLOBAL_ALL);
-	
+
 	curl = curl_easy_init();
-	
+
 	if (curl == NULL) {
 		err = KADERR_CURL_INIT_FAILURE;
 		goto end;
 	}
+
+	#if defined(KAD_CAPTURE)
+		data->curl = curl;
+	#endif
 	
 	if (curl_easy_impersonate(curl, target_impersonate, 1) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
@@ -554,10 +575,29 @@ static int request_handler(void* pointer) {
 		goto end;
 	}
 
-	if (loglevel_get() == LOG_VERBOSE) {
-		curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-	}
+	#if defined(KAD_CAPTURE)
+		/* route cURL's verbose output to the debug callback so the outgoing
+		   request headers can be captured */
 
+		if (curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L) != CURLE_OK) {
+			err = KADERR_CURL_SETOPT_FAILURE;
+			goto end;
+		}
+
+		if (curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, debug_callback) != CURLE_OK) {
+			err = KADERR_CURL_SETOPT_FAILURE;
+			goto end;
+		}
+
+		if (curl_easy_setopt(curl, CURLOPT_DEBUGDATA, (void*) data) != CURLE_OK) {
+			err = KADERR_CURL_SETOPT_FAILURE;
+			goto end;
+		}
+	#else
+		if (loglevel_get() == LOG_VERBOSE) {
+			curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+		}
+	#endif
 
 	/* Advertise all compression algorithms supported by curl and let it transparently decode the response body */
 	if (curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "") != CURLE_OK) {
