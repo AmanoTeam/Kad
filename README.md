@@ -29,7 +29,7 @@ Available options:
 
 ```
 $ kad --help
-usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE] [--dns-servers LIST]
+usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET] [--platform PLATFORM] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE] [--dns-servers LIST]
 
 A simple HTTP proxy server that forwards all requests through curl-impersonate.
 
@@ -39,6 +39,7 @@ options:
   --host HOST          Bind socket to this host. [default: 127.0.0.1]
   --port PORT          Bind socket to this port. [default: 4000]
   --target TARGET      Impersonate this target. [default: chrome116]
+  --platform PLATFORM  Impersonate this platform when the target is a generic Chrome, Edge or Firefox target (e.g. chrome131). Valid platforms: 'windows', 'macos', 'linux', 'android'.
   --loglevel LOGLEVEL  Set output verbosity. Valid levels: 'quiet', 'standard', 'warning', 'error', 'info', 'verbose'. [default: verbose]
   --proxy URL          Forward all requests through this proxy server.
   --doh-url URL        Use this DoH server for hostname resolution.

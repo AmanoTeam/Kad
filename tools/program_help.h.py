@@ -50,6 +50,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+	"--platform",
+	metavar = "PLATFORM",
+	required = False,
+	help = "Impersonate this platform when the target is a generic Chrome, Edge or Firefox target (e.g. chrome131). Valid platforms: 'windows', 'macos', 'linux', 'android'."
+)
+
+parser.add_argument(
 	"--loglevel",
 	required = False,
 	help = "Set output verbosity. Valid levels: 'quiet', 'standard', 'warning', 'error', 'info', 'verbose'. [default: verbose]"

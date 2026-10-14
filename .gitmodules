@@ -10,7 +10,6 @@
 [submodule "submodules/curl-impersonate"]
 	path = submodules/curl-impersonate
 	url = https://github.com/Kartatz/curl-impersonate
-	branch = fix-chrome131-android
 [submodule "submodules/boringssl"]
 	path = submodules/boringssl
 	url = https://github.com/google/boringssl
