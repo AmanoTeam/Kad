@@ -298,20 +298,6 @@ if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.patched")
 	file(WRITE "${CURL_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
-if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.android-patched")
-	message("-- Patching cURL for Android")
-
-	execute_process(
-		COMMAND patch
-		--directory=${CURL_SOURCE_DIRECTORY}
-		--strip=1
-		--input=${CMAKE_CURRENT_SOURCE_DIR}/patches/android.patch
-		COMMAND_ERROR_IS_FATAL ANY
-	)
-
-	file(WRITE "${CURL_SOURCE_DIRECTORY}/.android-patched" "")
-endif()
-
 if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.x509-cache-patched")
 	message("-- Patching cURL X509 cache")
 
@@ -352,20 +338,6 @@ if (NOT EXISTS "${BORINGSSL_SOURCE_DIRECTORY}/.patched")
 	)
 
 	file(WRITE "${BORINGSSL_SOURCE_DIRECTORY}/.patched" "")
-endif()
-
-if (NOT EXISTS "${BORINGSSL_SOURCE_DIRECTORY}/.musl-patched")
-	message("-- Patching BoringSSL for musl")
-
-	execute_process(
-		COMMAND patch
-		--directory=${BORINGSSL_SOURCE_DIRECTORY}
-		--strip=1
-		--input=${CMAKE_CURRENT_SOURCE_DIR}/patches/boringssl-musl.patch
-		COMMAND_ERROR_IS_FATAL ANY
-	)
-
-	file(WRITE "${BORINGSSL_SOURCE_DIRECTORY}/.musl-patched" "")
 endif()
 
 if (NOT EXISTS "${NGTCP2_SOURCE_DIRECTORY}/.patched")
