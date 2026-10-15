@@ -7,6 +7,8 @@ This file is auto-generated. Use the tool at ../tools/errors.h.py to regenerate.
 const char* strkaderr(const int code) {
 	
 	switch (code) {
+		case KADERR_CURL_MULTI_ACTION_FAILURE:
+			return "Failed to drive the transfers on the cURL multi stack";
 		case KADERR_SUCCESS:
 			return "Success";
 		case KADERR_ARGPARSE_ARGUMENT_EMPTY:
@@ -17,20 +19,20 @@ const char* strkaderr(const int code) {
 			return "This keyword argument requires a value to be supplied";
 		case KADERR_ARGPARSE_VALUE_UNEXPECTED:
 			return "Got an unexpected value while parsing the command-line arguments";
+		case KADERR_CURL_GETINFO_FAILURE:
+			return "Could not get info about HTTP transfer";
 		case KADERR_CURL_INIT_FAILURE:
 			return "Failed to initialize the cURL HTTP client";
+		case KADERR_CURL_MULTI_REMOVE_FAILURE:
+			return "Failed to remove handle from the cURL multi stack";
 		case KADERR_CURL_PERFORM_FAILURE:
 			return "General cURL failure";
 		case KADERR_CURL_SETOPT_FAILURE:
 			return "Failed to set option on the cURL HTTP client";
 		case KADERR_CURL_SLIST_FAILURE:
 			return "Could not append data to cURL array";
-		case KADERR_CURL_MULTI_PERFORM_FAILURE:
-			return "Failed to perform transfers on the cURL multi stack";
-		case KADERR_CURL_MULTI_POLL_FAILURE:
-			return "Failed to poll for events on the cURL multi stack";
-		case KADERR_CURL_MULTI_REMOVE_FAILURE:
-			return "Failed to remove handle from the cURL multi stack";
+		case KADERR_EVENT_BASE_FAILURE:
+			return "Could not initialize the event loop";
 		case KADERR_FSTREAM_CLOSE_FAILURE:
 			return "Could not close file";
 		case KADERR_FSTREAM_LOCK_FAILURE:
@@ -71,8 +73,6 @@ const char* strkaderr(const int code) {
 			return "Cannot receive data on SSL socket";
 		case KADERR_SSL_SEND_FAILURE:
 			return "Cannot send data on SSL socket";
-		case KADERR_CURL_GETINFO_FAILURE:
-			return "Could not get info about HTTP transfer";
 	}
 	
 	return "Unknown error";

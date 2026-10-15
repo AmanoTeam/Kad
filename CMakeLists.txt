@@ -22,11 +22,13 @@ if (KAD_STATIC)
 	set(KAD_LIBRARY_SUFFIX "${CMAKE_STATIC_LIBRARY_SUFFIX}")
 	
 	set(KAD_CURL_LIBRARY "libcurl_static")
+	set(KAD_EVENT_LIBRARY "event_core_static")
 else()
 	set(KAD_LIBRARY_PREFIX "${CMAKE_SHARED_LIBRARY_PREFIX}")
 	set(KAD_LIBRARY_SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}")
 	
 	set(KAD_CURL_LIBRARY "libcurl_shared")
+	set(KAD_EVENT_LIBRARY "event_core_shared")
 endif()
 
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
@@ -60,6 +62,7 @@ set(CURL_IMPERSONATE_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/cu
 set(PICOHTTPPARSER_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/picohttpparser")
 set(ZSTD_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/zstd")
 set(JANSSON_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/jansson")
+set(LIBEVENT_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/libevent")
 
 set(
 	INCLUDE_DIRECTORIES
@@ -80,7 +83,6 @@ set(
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/cleanup.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/main.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/argparse.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/threads.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/logging.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/fstream.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/getexec.c"
@@ -250,6 +252,20 @@ else()
 endif()
 
 set(JANSSON_BUILD_DOCS OFF)
+
+# libevent
+if (KAD_STATIC)
+	set(EVENT__LIBRARY_TYPE STATIC)
+else()
+	set(EVENT__LIBRARY_TYPE SHARED)
+endif()
+set(EVENT__DISABLE_OPENSSL ON)
+set(EVENT__DISABLE_MBEDTLS ON)
+set(EVENT__DISABLE_THREAD_SUPPORT ON)
+set(EVENT__DISABLE_BENCHMARK ON)
+set(EVENT__DISABLE_SAMPLES ON)
+set(EVENT__DISABLE_TESTS ON)
+set(EVENT__DISABLE_REGRESS ON)
 
 file(LOCK "${CMAKE_CURRENT_SOURCE_DIR}/lock")
 
@@ -549,6 +565,12 @@ add_subdirectory(
 	EXCLUDE_FROM_ALL
 )
 
+add_subdirectory(
+	"${LIBEVENT_SOURCE_DIRECTORY}"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/libevent"
+	EXCLUDE_FROM_ALL
+)
+
 file(REMOVE "${OPENSSL_SSL_LIBRARY}")
 file(REMOVE "${OPENSSL_CRYPTO_LIBRARY}")
 
@@ -772,6 +794,7 @@ target_link_libraries(
 	ssl
 	crypto
 	${KAD_CURL_LIBRARY}
+	${KAD_EVENT_LIBRARY}
 	jansson
 )
 

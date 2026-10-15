@@ -1,5 +1,7 @@
 #include <curl/curl.h>
 
+#include <event2/event.h>
+
 #include "cleanup.h"
 #include "http.h"
 #include "ssl.h"
@@ -36,28 +38,39 @@ void __curl_easy_cleanup(CURL** ptr) {
 }
 
 void transferdata_close(transferdata_t* const data) {
-	
+
 	if (data == NULL) {
 		return;
 	}
-	
+
 	curl_slist_free_all(data->headers);
-	
+
+	if (data->event != NULL) {
+		event_del(data->event);
+		event_free(data->event);
+
+		data->event = NULL;
+	}
+
 	ssl_close(&data->context);
-	
+
 	if (data->fd > 0) {
 		socket_close(data->fd);
 	}
-	
+
 	http_request_free(&data->request);
 	buffer_free(&data->buffer);
+	buffer_free(&data->in);
+	buffer_free(&data->out);
+
+	free(data->hostname);
 
 	#if defined(KAD_CAPTURE)
 		capture_close(&data->capture);
 	#endif
 
 	free(data);
-	
+
 }
 
 void __transferdata_close(transferdata_t** ptr) {

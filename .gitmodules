@@ -37,3 +37,6 @@
 [submodule "submodules/jansson"]
 	path = submodules/jansson
 	url = https://github.com/akheron/jansson
+[submodule "submodules/libevent"]
+	path = submodules/libevent
+	url = https://github.com/libevent/libevent

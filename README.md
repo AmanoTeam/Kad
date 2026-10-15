@@ -93,5 +93,52 @@ curl_setopt($handle, CURLOPT_SSL_VERIFYHOST, 0);
 $response = curl_exec($handle);
 ```
 
+With Java + OkHttp:
+
+```java
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.security.cert.X509Certificate;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.X509TrustManager;
+
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        X509TrustManager trustManager = new X509TrustManager() {
+            @Override
+            public void checkClientTrusted(X509Certificate[] chain, String authType) { }
+            @Override
+            public void checkServerTrusted(X509Certificate[] chain, String authType) { }
+            @Override
+            public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+        };
+
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, new javax.net.ssl.TrustManager[] { trustManager }, null);
+
+        OkHttpClient client = new OkHttpClient.Builder()
+            .proxy(new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 4000)))
+            .sslSocketFactory(sslContext.getSocketFactory(), trustManager)
+            .hostnameVerifier((hostname, session) -> true)
+            // Kad closes the proxy connection after each response, so OkHttp's
+            // pooled connections go stale; make sure it retries (the default)
+            // instead of surfacing them as IOExceptions
+            .retryOnConnectionFailure(true)
+            .build();
+
+        Request request = new Request.Builder().url("https://example.com").build();
+
+        try (Response response = client.newCall(request).execute()) {
+            System.out.println(response.body().string());
+        }
+    }
+}
+```
+
 > [!IMPORTANT]
 > Kad uses a self-signed [certificate](./tools/certificates/kad.crt) to decrypt requests made to HTTPS websites, so your HTTP client will refuse sending requests unless you disable SSL verification.

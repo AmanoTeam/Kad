@@ -88,8 +88,14 @@ errors.sort()
 body = ""
 group = None
 
-for (index, error) in enumerate(errors):
-	error.code = -index if index != 0 else index
+code = 0
+
+for error in errors:
+	if error.name == "KADERR_SUCCESS":
+		error.code = 0
+	else:
+		code -= 1
+		error.code = code
 	
 	if error.group != group:
 		group = error.group

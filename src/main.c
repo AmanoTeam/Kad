@@ -15,6 +15,7 @@
 	#include <arpa/inet.h>
 	#include <netinet/in.h>
 	#include <netdb.h>
+	#include <fcntl.h>
 #endif
 
 #if defined(_WIN32) && defined(_UNICODE)
@@ -23,9 +24,12 @@
 
 #include <curl/curl.h>
 
+#include <event2/event.h>
+
 #include "http.h"
 #include "ssl.h"
 #include "cleanup.h"
+#include "client.h"
 #include "constants.h"
 #include "callbacks.h"
 #include "transferdata.h"
@@ -38,7 +42,6 @@
 #include "resources.h"
 #include "argparse.h"
 #include "kad.h"
-#include "threads.h"
 #include "logging.h"
 #include "socketclose.h"
 
@@ -103,6 +106,10 @@ static const char* const IMPERSONATE_HEADERS[] = {
 static int fd = 0;
 
 static CURLM* curl_multi = NULL;
+
+static struct event_base* event_base = NULL;
+
+static struct event* curl_timeout_event = NULL;
 
 /* the TLS and HTTP/2 fingerprints of Chrome only depend on its major version,
    so every supported combination of --target=chrome<version> and --platform is
@@ -1007,273 +1014,414 @@ static int load_ssl_certificates(const char* const cacert) {
 }
 #endif
 
-struct curl_pending {
-	CURL* handle;
-	struct curl_pending* next;
+#define CLIENT_OUTPUT_MAX_SIZE (1024 * 1024)
+#define CLIENT_OUTPUT_MIN_SIZE (256 * 1024)
+
+/* how long to wait for the client to finish sending before closing after
+   the answer was already delivered (lingering close) */
+
+#define CLIENT_DRAIN_TIMEOUT (3)
+
+struct curl_socket_context {
+	struct event* event;
+	curl_socket_t sockfd;
 };
 
-typedef struct curl_pending curl_pending_t;
+typedef struct curl_socket_context curl_socket_context_t;
 
-static curl_pending_t* curl_pending = NULL;
-static mutex_t curl_pending_mutex = MUTEX_INIT;
+static void client_event_cb(evutil_socket_t fd, short events, void* arg);
 
-static void* event_loop(void* pointer) {
-	
-	int left = 0;
-	int running = 0;
-	
-	int err = 0;
-	
-	CURLMsg* msg = NULL;
-	CURLcode easy_code = 0;
-	
-	CURLMcode code = CURLM_OK;
-	
-	curl_pending_t* item = NULL;
-	curl_pending_t* next = NULL;
-	
-	CURL* handle = NULL;
-	
-	transferdata_t* data = NULL;
-	
-	(void) pointer;
-	
-	while (1) {
-		mutex_lock(&curl_pending_mutex);
-		item = curl_pending;
-		curl_pending = NULL;
-		mutex_unlock(&curl_pending_mutex);
-		
-		while (item != NULL) {
-			next = item->next;
-			
-			handle = item->handle;
-			free(item);
-			
-			code = curl_multi_add_handle(curl_multi, handle);
-			
-			if (code != CURLM_OK) {
-				loggln(LOG_ERROR, "[error] could not add handle to multi stack: %s", curl_multi_strerror(code));
-				
-				easy_code = curl_easy_getinfo(handle, CURLINFO_PRIVATE, &data);
+static void curl_check_completed(void);
 
-				if (easy_code != CURLE_OK) {
-					err = KADERR_CURL_GETINFO_FAILURE;
-					goto end;
-				}
+static int socket_nonblocking(const int fd) {
 
-				#if defined(KAD_CAPTURE)
-					capture_end(&data->capture, handle);
-				#endif
+#if defined(_WIN32)
+	unsigned long mode = 1;
 
-				curl_easy_cleanup(handle);
-				transferdata_close(data);
-			}
-			
-			item = next;
-		}
-		
-		code = curl_multi_perform(curl_multi, &running);
-		
-		if (code != CURLM_OK) {
-			err = KADERR_CURL_MULTI_PERFORM_FAILURE;
-			goto end;
-		}
-		
-		while ((msg = curl_multi_info_read(curl_multi, &left)) != NULL) {
-			if (msg->msg != CURLMSG_DONE) {
-				continue;
-			}
-			
-			if (msg->data.result != CURLE_OK) {
-				loggln(LOG_ERROR, "[error] curl: %s", curl_easy_strerror(msg->data.result));
-			}
-			
-			easy_code = curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
-			
-			if (easy_code != CURLE_OK) {
-				err = KADERR_CURL_GETINFO_FAILURE;
-				goto end;
-			}
-			
-			code = curl_multi_remove_handle(curl_multi, msg->easy_handle);
+	return (ioctlsocket(fd, FIONBIO, &mode) == 0) ? 0 : -1;
+#else
+	const int flags = fcntl(fd, F_GETFL, 0);
 
-			if (code != CURLM_OK) {
-				err = KADERR_CURL_MULTI_REMOVE_FAILURE;
-				goto end;
-			}
-
-			#if defined(KAD_CAPTURE)
-				capture_end(&data->capture, msg->easy_handle);
-			#endif
-
-			curl_easy_cleanup(msg->easy_handle);
-			transferdata_close(data);
-		}
-		
-		code = curl_multi_poll(curl_multi, NULL, 0, 1000, NULL);
-		
-		if (code != CURLM_OK) {
-			err = KADERR_CURL_MULTI_POLL_FAILURE;
-			goto end;
-		}
+	if (flags == -1) {
+		return -1;
 	}
-	
-	end:;
-	
-	if (easy_code != CURLE_OK) {
-		loggln(LOG_ERROR, "[error] %s: %s", strkaderr(err), curl_easy_strerror(easy_code));
-	} else {
-		loggln(LOG_ERROR, "[error] %s: %s", strkaderr(err), curl_multi_strerror(code));
-	}
-	
-	return NULL;
-	
+
+	return (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0) ? 0 : -1;
+#endif
+
 }
 
-static int request_handler(void* pointer) {
-	
-	int err = 0;
-	
-	int fd = *(int*) pointer;
-	
-	transferdata_t* data __transferdata_close__ = NULL;
-	
-	http_header_t* header = NULL;
-	
-	char* hostname = NULL;
-	char* uri = NULL;
+static int socket_wouldblock(void) {
+
+#if defined(_WIN32)
+	const int error = WSAGetLastError();
+
+	return (error == WSAEWOULDBLOCK || error == WSAEINPROGRESS);
+#else
+	return (errno == EAGAIN || errno == EWOULDBLOCK);
+#endif
+
+}
+
+static ssize_t socket_read(const int fd, char* const buffer, const size_t size, int* const wait) {
+
+	ssize_t rsize = -1;
+
+	*wait = 0;
+
+#if !defined(_WIN32)
+	do {
+		rsize = recv(fd, buffer, size, 0);
+	} while (rsize == -1 && errno == EINTR);
+#else
+	rsize = recv(fd, buffer, size, 0);
+#endif
+
+	if (rsize == -1) {
+		if (socket_wouldblock()) {
+			*wait = SSL_WAIT_READ;
+			return 0;
+		}
+
+		return -1;
+	}
+
+	if (rsize == 0) {
+		/* orderly shutdown of the connection */
+
+		return -2;
+	}
+
+	return rsize;
+
+}
+
+static ssize_t socket_write(const int fd, const char* const buffer, const size_t size, int* const wait) {
+
+	size_t offset = 0;
+
+	ssize_t wsize = 0;
+
+	*wait = 0;
+
+	while (offset < size) {
+		wsize = send(fd, buffer + offset, size - offset, 0);
+
+		if (wsize == -1) {
+		#if !defined(_WIN32)
+			if (errno == EINTR) {
+				continue;
+			}
+		#endif
+			if (socket_wouldblock()) {
+				*wait = SSL_WAIT_WRITE;
+				return (ssize_t) offset;
+			}
+
+			return -1;
+		}
+
+		offset += (size_t) wsize;
+	}
+
+	return (ssize_t) offset;
+
+}
+
+static int socket_shutdown_write(const int fd) {
+
+#if defined(_WIN32)
+	return (shutdown(fd, SD_SEND) == 0) ? 0 : -1;
+#else
+	return (shutdown(fd, SHUT_WR) == 0) ? 0 : -1;
+#endif
+
+}
+
+/* depth of the nested cURL calls made from within the client callbacks; a
+   client is never destroyed while nested inside its own callback, as that
+   would leave a dangling pointer on the stack of the caller */
+
+static int curl_depth = 0;
+
+static void client_destroy(transferdata_t* const data) {
+	transferdata_close(data);
+}
+
+static void client_kill(transferdata_t* const data) {
+
+	if (data->curl != NULL) {
+		curl_multi_remove_handle(curl_multi, data->curl);
+		curl_easy_cleanup(data->curl);
+
+		data->curl = NULL;
+	}
+
+	client_destroy(data);
+
+}
+
+static void client_event_update(transferdata_t* const data) {
+
+	short events = EV_PERSIST;
+
+	struct timeval tv;
+	struct timeval* timeout = NULL;
+
+	if (data->state == CLIENT_STATE_HANDSHAKE) {
+		if ((data->wait & SSL_WAIT_WRITE) != 0) {
+			events |= EV_WRITE;
+		} else {
+			events |= EV_READ;
+		}
+	} else {
+		if (!data->read_eof) {
+			events |= EV_READ;
+		}
+
+		if (data->out.slength > 0 || (data->wait & SSL_WAIT_WRITE) != 0) {
+			events |= EV_WRITE;
+		}
+	}
+
+	/* while lingering, the watcher bounds how long the client can keep
+	   sending after its answer was already delivered */
+
+	if (data->state == CLIENT_STATE_CLOSING && data->fin_sent) {
+		tv.tv_sec = CLIENT_DRAIN_TIMEOUT;
+		tv.tv_usec = 0;
+
+		timeout = &tv;
+	}
+
+	/* the watcher only has to be rearmed when the watched conditions
+	   actually changed; armed timeouts are remembered through the sign,
+	   as rearmed watchers would restart the lingering deadline */
+
+	int armed = timeout ? -(int) events : (int) events;
+
+	if (data->events == armed) {
+		return;
+	}
+
+	event_del(data->event);
+	event_assign(data->event, event_base, data->fd, events, client_event_cb, data);
+	event_add(data->event, timeout);
+
+	data->events = armed;
+
+}
+
+static void client_linger_close(transferdata_t* const data) {
+	/*
+	The client may still be sending the rest of its request when its answer
+	was already delivered; shut the write half down and keep draining
+	whatever it sends, as closing right away would reset the connection and
+	destroy the response queued for it.
+	*/
+
+	if (data->is_secure) {
+		/* best-effort TLS close notify; the write half is shut down
+		   right after regardless */
+
+		ssl_close(&data->context);
+	}
+
+	socket_shutdown_write(data->fd);
+
+	data->fin_sent = 1;
+
+	/* force the watcher to be rearmed along with the drain deadline */
+
+	data->events = -1;
+
+	client_event_update(data);
+
+}
+
+/*
+Closes the client connection, lingering first when it may still be sending
+the rest of its request; returns (-1) when the client was destroyed.
+*/
+
+static int client_close_or_destroy(transferdata_t* const data) {
+
+	if (data->remaining > 0 && !data->read_eof && data->state != CLIENT_STATE_HANDSHAKE && data->state != CLIENT_STATE_REQUEST) {
+		data->state = CLIENT_STATE_CLOSING;
+
+		client_linger_close(data);
+
+		return 0;
+	}
+
+	client_destroy(data);
+
+	return -1;
+
+}
+
+static int client_flush(transferdata_t* const data) {
+
+	size_t offset = 0;
+	ssize_t size = 0;
+
+	int wait = 0;
+
+	while (offset < data->out.slength) {
+		wait = 0;
+
+		size = (data->is_secure)
+			? ssl_send(&data->context, data->out.s + offset, data->out.slength - offset, &wait)
+			: socket_write(data->fd, data->out.s + offset, data->out.slength - offset, &wait);
+
+		if (size == -1) {
+			return -1;
+		}
+
+		if (size == 0 && wait != 0) {
+			data->wait |= wait;
+			break;
+		}
+
+		offset += (size_t) size;
+	}
+
+	if (offset > 0) {
+		data->out.slength -= offset;
+
+		memmove(data->out.s, data->out.s + offset, data->out.slength);
+	}
+
+	return 0;
+
+}
+
+int client_write(transferdata_t* const data, const char* const buffer, const size_t size) {
+
+	char* s = NULL;
+
+	if (size > 0) {
+		s = realloc(data->out.s, data->out.slength + size);
+
+		if (s == NULL) {
+			return -1;
+		}
+
+		memcpy(s + data->out.slength, buffer, size);
+
+		data->out.s = s;
+		data->out.slength += size;
+	}
+
+	if (client_flush(data) != 0) {
+		return -1;
+	}
+
+	/* apply backpressure once too much response data is waiting to be
+	   sent to a slow client */
+
+	if (data->curl != NULL && !data->download_paused && data->out.slength >= CLIENT_OUTPUT_MAX_SIZE) {
+		if (curl_easy_pause(data->curl, CURLPAUSE_RECV) == CURLE_OK) {
+			data->download_paused = 1;
+		}
+	}
+
+	client_event_update(data);
+
+	return 0;
+
+}
+
+/* resume the paused transfer of a client and drive the multi stack once, as
+   resuming a paused handle needs an external kickstart */
+
+static int client_kick(transferdata_t* const data) {
+
+	int running = 0;
+
+	CURLMcode code = CURLM_OK;
+
+	code = curl_multi_socket_action(curl_multi, CURL_SOCKET_TIMEOUT, 0, &running);
+
+	if (code != CURLM_OK) {
+		loggln(LOG_ERROR, "[error] %s: %s", strkaderr(KADERR_CURL_MULTI_ACTION_FAILURE), curl_multi_strerror(code));
+	}
+
+	curl_depth++;
+
+	curl_check_completed();
+
+	curl_depth--;
+
+	if (data->destroy_pending) {
+		data->destroy_pending = 0;
+
+		client_close_or_destroy(data);
+	}
+
+	return 0;
+
+}
+
+static int client_headers_complete(const buffer_t* const buffer) {
+
+	size_t index = 0;
+	size_t limit = 0;
+
+	if (buffer->slength < strlen(CRLFCRLF)) {
+		return 0;
+	}
+
+	limit = buffer->slength - strlen(CRLFCRLF);
+
+	for (index = 0; index <= limit; index++) {
+		if (memcmp(buffer->s + index, CRLFCRLF, strlen(CRLFCRLF)) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+
+}
+
+static int client_start_transfer(transferdata_t* const data) {
+	/*
+	Creates a cURL easy handle for the parsed request and adds it to the
+	multi stack.
+
+	Returns (0) on success, a KADERR_* code on error, or (-1) when the
+	failure has already been handled and logged.
+	*/
+
+	int err = KADERR_SUCCESS;
+
+	const http_header_t* header = NULL;
+
 	char* item = NULL;
-	
-	char buffer[MAX_HTTP_HEADERS_SIZE];
-	
-	CURL* curl __curl_easy_cleanup__ = NULL;
-	
+
 	struct curl_slist* tmp = NULL;
-	
-	curl_pending_t* pending = NULL;
-	
+
 	size_t index = 0;
 	size_t subindex = 0;
-	
-	size_t content_length = 0;
-	
-	int status = 0;
-	
-	int is_secure = 0;
-	
-	ssize_t recv_size = 0;
-	ssize_t size = 0;
-	
-	CURLcode value = 0;
-	
-	const char* name = NULL;
-	
-	static char curl_error_message[CURL_ERROR_SIZE] = {0};
-	
-	free(pointer);
-	
-	data = malloc(sizeof(*data));
-	
-	if (data == NULL) {
-		socket_close(fd);
-		
-		err = KADERR_MEMORY_ALLOCATE_FAILURE;
-		goto end;
-	}
-	
-	memset(data, 0, sizeof(*data));
-	data->fd = fd;
-	
-	recv_size = recv(fd, buffer, MAX_HTTP_HEADERS_SIZE, 0);
-	
-#if !defined(_WIN32)
-	while (recv_size == -1 && errno == EINTR) {
-		recv_size = recv(fd, buffer, MAX_HTTP_HEADERS_SIZE, 0);
-	}
-#endif
-	
-	if (recv_size <= 0) {
-		err = KADERR_SOCKET_RECV_FAILURE;
-		goto end;
-	}
-	
-	http_request_init(&data->request);
-	
-	err = http_request_parse(&data->request, buffer, (size_t) recv_size);
-	
-	if (err != KADERR_SUCCESS) {
-		goto end;
-	}
-	
-	is_secure = (data->request.method == CONNECT);
-	
-	data->is_secure = is_secure;
 
-	if (is_secure) {
-		size = send(fd, "HTTP/1.0 200 OK\r\n\r\n", 19, 0);
-		
-#if !defined(_WIN32)
-		while (size == -1 && errno == EINTR) {
-			size = send(fd, "HTTP/1.0 200 OK\r\n\r\n", 19, 0);
-		}
-#endif
-		
-		if (size == -1) {
-			err = KADERR_SOCKET_SEND_FAILURE;
-			goto end;
-		}
-		
-		if (ssl_init(&data->context, &fd) == -1) {
-			err = KADERR_SSL_INIT_FAILURE;
-			goto end;
-		}
-		
-		size = ssl_recv(&data->context, buffer, sizeof(buffer));
-		
-		if (size <= 0) {
-			err = KADERR_SSL_RECV_FAILURE;
-			goto end;
-		}
-		
-		hostname = data->request.uri;
-		
-		data->request.uri = NULL;
-		http_request_free(&data->request);
-		
-		err = http_request_parse(&data->request, buffer, (size_t) size);
-		
-		if (err != KADERR_SUCCESS) {
-			goto end;
-		}
-		
-		uri = malloc(strlen(HTTPS_SCHEME) + strlen(SCHEME_SEPARATOR) + strlen(hostname) + strlen(data->request.uri) + 1);
-		
-		if (uri == NULL) {
-			err = KADERR_MEMORY_ALLOCATE_FAILURE;
-			goto end;
-		}
-		
-		strcpy(uri, HTTPS_SCHEME);
-		strcat(uri, SCHEME_SEPARATOR);
-		strcat(uri, hostname);
-		strcat(uri, data->request.uri);
-		
-		free(hostname);
-		hostname = NULL;
-		
-		data->request.uri = uri;
-		uri = NULL;
-	}
-	
-	loggln(LOG_INFO, "[info] client request to %s", data->request.uri);
+	size_t content_length = 0;
+
+	int status = 0;
+
+	CURLcode value = 0;
+
+	const char* name = NULL;
+
+	static char curl_error_message[CURL_ERROR_SIZE] = {0};
+
+	CURL* curl __curl_easy_cleanup__ = NULL;
+
+	CURLMcode code = CURLM_OK;
 
 	#if defined(KAD_CAPTURE)
 		/* capturing is best-effort, failures never affect the request being forwarded */
 		capture_init(&data->capture, &data->request);
 	#endif
-
-	curl_global_init(CURL_GLOBAL_ALL);
 
 	curl = curl_easy_init();
 
@@ -1282,16 +1430,12 @@ static int request_handler(void* pointer) {
 		goto end;
 	}
 
-	#if defined(KAD_CAPTURE)
-		data->curl = curl;
-	#endif
-
 	if (impersonate_target_base != NULL) {
 		if (curl_easy_impersonate(curl, impersonate_target_base, 0) != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
 		}
-		
+
 		if (set_impersonate_headers(curl, impersonate_target_browser, impersonate_target_version, impersonate_target_platform) != 0) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
@@ -1311,27 +1455,27 @@ static int request_handler(void* pointer) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	if (curl_easy_setopt(curl, CURLOPT_DNS_SERVERS, *dns_servers != '\0' ? dns_servers : "8.8.8.8,8.8.4.4") != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	if (curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback_empty) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	if (curl_easy_setopt(curl, CURLOPT_SUPPRESS_CONNECT_HEADERS, 1L) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	if (curl_easy_setopt(curl, CURLOPT_ALTSVC, "") != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	#if defined(KAD_DISABLE_SSL_VERIFY)
 		value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 
@@ -1366,12 +1510,12 @@ static int request_handler(void* pointer) {
 			goto end;
 		}
 	#endif
-	
+
 	if (curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error_message) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	if (curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
@@ -1406,122 +1550,122 @@ static int request_handler(void* pointer) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	for (index = 0; index < data->request.headers.offset; index++) {
 		header = &data->request.headers.items[index];
-		
+
 		status = 0;
-		
+
 		for (subindex = 0; subindex < sizeof(IMPERSONATE_HEADERS) / sizeof(*IMPERSONATE_HEADERS); subindex++) {
 			name = IMPERSONATE_HEADERS[subindex];
-			
+
 			status = (strcasecmp(header->key, name) == 0);
-			
+
 			if (!status) {
 				continue;
 			}
-			
+
 			break;
 		}
-		
+
 		if (status) {
 			continue;
 		}
-		
+
 		item = malloc(strlen(header->key) + strlen(HEADER_SEPARATOR) + strlen(header->value) + 1);
-		
+
 		if (item == NULL) {
 			err = KADERR_MEMORY_ALLOCATE_FAILURE;
 			goto end;
 		}
-		
+
 		strcpy(item, header->key);
 		strcat(item, HEADER_SEPARATOR);
 		strcat(item, header->value);
-		
+
 		tmp = curl_slist_append(data->headers, item);
-		
+
 		free(item);
 		item = NULL;
-		
+
 		if (tmp == NULL) {
 			err = KADERR_CURL_SLIST_FAILURE;
 			goto end;
 		}
-		
+
 		data->headers = tmp;
 	}
-	
+
 	if (data->request.method == POST || data->request.method == PUT) {
 		header = http_headers_get(&data->request.headers, "Expect");
-		
+
 		if (header == NULL) {
 			tmp = curl_slist_append(data->headers, "Expect:");
-			
+
 			if (tmp == NULL) {
 				err = KADERR_CURL_SLIST_FAILURE;
 				goto end;
 			}
-			
+
 			data->headers = tmp;
 		}
 	}
-	
+
 	if (curl_easy_setopt(curl, CURLOPT_HTTPHEADER, data->headers) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	if (curl_easy_setopt(curl, CURLOPT_URL, data->request.uri) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	if (data->request.method != HEAD) {
 		if (curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback) != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
 		}
-		
+
 		if (curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*) data) != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
 		}
 	}
-	
+
 	header = http_headers_get(&data->request.headers, "Transfer-Encoding");
-	
+
 	status = (header != NULL && strcmp(header->value, "chunked") == 0);
-	
+
 	if (!status) {
 		header = http_headers_get(&data->request.headers, "Content-Length");
-		
+
 		if (header != NULL) {
 			content_length = strtoull(header->value, NULL, 10);
 		}
 	}
-	
-	if (data->request.body.size > 0 || content_length > 0 || status || recv_size >= MAX_HTTP_HEADERS_SIZE) {
+
+	if (data->request.body.size > 0 || content_length > 0 || status || data->request_size >= MAX_HTTP_HEADERS_SIZE) {
 		if (curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback) != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
 		}
-		
+
 		if (curl_easy_setopt(curl, CURLOPT_READDATA, (void*) data) != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
 		}
-		
+
 		if (content_length > 0) {
 			if (curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long) content_length) != CURLE_OK) {
 				err = KADERR_CURL_SETOPT_FAILURE;
 				goto end;
 			}
 		}
-		
+
 		data->remaining = content_length;
 	}
-	
+
 	switch (data->request.method) {
 		case GET: {
 			value = curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
@@ -1541,70 +1685,753 @@ static int request_handler(void* pointer) {
 			break;
 		}
 	}
-	
+
 	if (value != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	if (curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	if (curl_easy_setopt(curl, CURLOPT_HEADERDATA, (void*) data) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
+
 	if (curl_easy_setopt(curl, CURLOPT_PRIVATE, (void*) data) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
-	
-	pending = malloc(sizeof(*pending));
-	
-	if (pending == NULL) {
-		err = KADERR_MEMORY_ALLOCATE_FAILURE;
+
+	code = curl_multi_add_handle(curl_multi, curl);
+
+	if (code != CURLM_OK) {
+		loggln(LOG_ERROR, "[error] could not add handle to multi stack: %s", curl_multi_strerror(code));
+
+		#if defined(KAD_CAPTURE)
+			capture_end(&data->capture, curl);
+		#endif
+
+		curl_easy_cleanup(curl);
+		curl = NULL;
+
+		err = -1;
 		goto end;
 	}
-	
-	pending->handle = curl;
-	
-	mutex_lock(&curl_pending_mutex);
-	
-	pending->next = curl_pending;
-	curl_pending = pending;
-	pending = NULL;
-	
-	mutex_unlock(&curl_pending_mutex);
-	
-	curl_multi_wakeup(curl_multi);
-	
+
+	data->curl = curl;
 	curl = NULL;
-	data = NULL;
-	
+
+	data->state = CLIENT_STATE_FORWARD;
+
 	end:;
-	
-	free(hostname);
-	free(uri);
-	free(item);
-	free(pending);
-	
+
 	return err;
-	
+
 }
 
-static void* handle_request(void* pointer) {
-	
-	const int code = request_handler(pointer);
-	
+static int client_request_data(transferdata_t* const data, const char* const chunk, const size_t size) {
+	/*
+	Buffers the incoming request bytes and parses the request once its
+	headers are complete.
+
+	Returns (0) on success, (-1) when the client was destroyed.
+	*/
+
+	char* s = NULL;
+	char* uri = NULL;
+
+	int code = 0;
+
+	size_t parse_size = 0;
+	size_t excess_size = 0;
+
+	s = realloc(data->in.s, data->in.slength + size + 1);
+
+	if (s == NULL) {
+		loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+		client_kill(data);
+
+		return -1;
+	}
+
+	memcpy(s + data->in.slength, chunk, size);
+
+	data->in.s = s;
+	data->in.slength += size;
+	data->in.s[data->in.slength] = '\0';
+
+	if (!client_headers_complete(&data->in) && data->in.slength < MAX_HTTP_HEADERS_SIZE) {
+		return 0;
+	}
+
+	/* the headers are complete, or the maximum size was exceeded; this
+	   emulates the single recv() call of the previous threaded design, so
+	   at most MAX_HTTP_HEADERS_SIZE bytes are parsed and anything beyond
+	   them is request body that is kept buffered */
+
+	parse_size = (data->in.slength > MAX_HTTP_HEADERS_SIZE) ? MAX_HTTP_HEADERS_SIZE : data->in.slength;
+
+	data->request_size = parse_size;
+
+	http_request_init(&data->request);
+
+	code = http_request_parse(&data->request, data->in.s, parse_size);
+
 	if (code != KADERR_SUCCESS) {
 		loggln(LOG_ERROR, "[error] %s", strkaderr(code));
+
+		client_kill(data);
+
+		return -1;
 	}
-	
-	return NULL;
-	
+
+	excess_size = data->in.slength - parse_size;
+
+	if (excess_size > 0) {
+		s = realloc(data->request.body.content, data->request.body.size + excess_size);
+
+		if (s == NULL) {
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+			client_kill(data);
+
+			return -1;
+		}
+
+		memcpy(s + data->request.body.size, data->in.s + parse_size, excess_size);
+
+		data->request.body.content = s;
+		data->request.body.size += excess_size;
+	}
+
+	buffer_free(&data->in);
+
+	if (data->request.method == CONNECT && !data->is_secure) {
+		/* the client wants to tunnel a secure connection through the
+		   proxy; accept the tunnel and start the TLS handshake */
+
+		data->hostname = data->request.uri;
+		data->request.uri = NULL;
+
+		http_request_free(&data->request);
+
+		if (client_write(data, "HTTP/1.0 200 OK\r\n\r\n", 19) != 0) {
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SOCKET_SEND_FAILURE));
+
+			client_kill(data);
+
+			return -1;
+		}
+
+		if (ssl_init(&data->context, &data->fd) == -1) {
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SSL_INIT_FAILURE));
+
+			client_kill(data);
+
+			return -1;
+		}
+
+		data->is_secure = 1;
+		data->state = CLIENT_STATE_HANDSHAKE;
+
+		return 0;
+	}
+
+	if (data->hostname != NULL) {
+		/* the request was tunneled through a TLS connection; rebuild the
+		   absolute HTTPS url from the tunnel target and the request path */
+
+		uri = malloc(strlen(HTTPS_SCHEME) + strlen(SCHEME_SEPARATOR) + strlen(data->hostname) + strlen(data->request.uri) + 1);
+
+		if (uri == NULL) {
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+			client_kill(data);
+
+			return -1;
+		}
+
+		strcpy(uri, HTTPS_SCHEME);
+		strcat(uri, SCHEME_SEPARATOR);
+		strcat(uri, data->hostname);
+		strcat(uri, data->request.uri);
+
+		free(data->hostname);
+		data->hostname = NULL;
+
+		free(data->request.uri);
+		data->request.uri = uri;
+	}
+
+	loggln(LOG_INFO, "[info] client request to %s", data->request.uri);
+
+	code = client_start_transfer(data);
+
+	if (code > 0) {
+		loggln(LOG_ERROR, "[error] %s", strkaderr(code));
+
+		client_kill(data);
+
+		return -1;
+	}
+
+	if (code < 0) {
+		client_kill(data);
+
+		return -1;
+	}
+
+	return 0;
+
+}
+
+static int client_read(transferdata_t* const data) {
+	/*
+	Drives the client connection: the TLS handshake, the reading of the
+	requests, and the forwarding of request bodies to cURL.
+
+	Returns (0) on success, (-1) when the client was destroyed.
+	*/
+
+	char chunk[MAX_CHUNK_SIZE];
+
+	char* s = NULL;
+
+	ssize_t size = 0;
+
+	size_t forward_size = 0;
+
+	int wait = 0;
+	int status = 0;
+
+	int readable = 1;
+
+	while (readable && !data->read_eof) {
+		readable = 0;
+
+		if (data->state == CLIENT_STATE_HANDSHAKE) {
+			wait = 0;
+
+			status = ssl_accept(&data->context, &wait);
+
+			if (status == 1) {
+				data->state = CLIENT_STATE_REQUEST;
+				readable = 1;
+
+				continue;
+			}
+
+			if (status == 0) {
+				data->wait |= wait;
+
+				break;
+			}
+
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SSL_INIT_FAILURE));
+
+			client_kill(data);
+
+			return -1;
+		}
+
+		wait = 0;
+
+		/* the lingering phase reads and discards the raw bytes left in
+		   the connection, as the TLS layer is gone by then */
+
+		size = (data->is_secure && !data->fin_sent)
+			? ssl_recv(&data->context, chunk, sizeof(chunk), &wait)
+			: socket_read(data->fd, chunk, sizeof(chunk), &wait);
+
+		if (size == -2) {
+			/* the client orderly closed the connection */
+
+			if (data->state == CLIENT_STATE_REQUEST || (data->state == CLIENT_STATE_FORWARD && data->remaining > 0)) {
+				loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SOCKET_RECV_FAILURE));
+
+				client_kill(data);
+
+				return -1;
+			}
+
+			data->read_eof = 1;
+
+			break;
+		}
+
+		if (size == -1) {
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SOCKET_RECV_FAILURE));
+
+			client_kill(data);
+
+			return -1;
+		}
+
+		if (size == 0) {
+			data->wait |= wait;
+
+			break;
+		}
+
+		if (data->state == CLIENT_STATE_REQUEST) {
+			if (client_request_data(data, chunk, (size_t) size) != 0) {
+				return -1;
+			}
+
+			readable = 1;
+
+			continue;
+		}
+
+		/* forward what is left of the request body to cURL; anything
+		   beyond its declared size is discarded, exactly like in the
+		   previous threaded design */
+
+		if (data->state == CLIENT_STATE_FORWARD && data->remaining > data->request.body.size) {
+			forward_size = data->remaining - data->request.body.size;
+
+			if (forward_size > (size_t) size) {
+				forward_size = (size_t) size;
+			}
+
+			s = realloc(data->request.body.content, data->request.body.size + forward_size);
+
+			if (s == NULL) {
+				loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+				client_kill(data);
+
+				return -1;
+			}
+
+			memcpy(s + data->request.body.size, chunk, forward_size);
+
+			data->request.body.content = s;
+			data->request.body.size += forward_size;
+
+			/* data->remaining is only decremented as cURL consumes the
+			   buffered body, exactly like in the previous design */
+
+			if (data->upload_paused && data->curl != NULL) {
+				curl_easy_pause(data->curl, CURLPAUSE_SEND_CONT);
+
+				data->upload_paused = 0;
+
+				/* the client cannot be destroyed while the transfer is
+				   being resumed, but it may be destroyed right after */
+
+				if (client_kick(data) != 0) {
+					return -1;
+				}
+
+				return 0;
+			}
+		}
+
+		readable = 1;
+	}
+
+	return 0;
+
+}
+
+static void client_event_cb(evutil_socket_t fd, short events, void* arg) {
+
+	transferdata_t* const data = (transferdata_t*) arg;
+
+	int dead = 0;
+
+	(void) fd;
+
+	data->wait = 0;
+
+	if ((events & EV_TIMEOUT) != 0) {
+		/* the lingering deadline ran out */
+
+		client_destroy(data);
+
+		return;
+	}
+
+	if ((events & EV_WRITE) != 0) {
+		if (data->state == CLIENT_STATE_HANDSHAKE) {
+			if (client_read(data) != 0) {
+				dead = 1;
+			}
+		} else if (client_flush(data) != 0) {
+			client_kill(data);
+
+			dead = 1;
+		} else if (data->state == CLIENT_STATE_CLOSING && data->out.slength == 0) {
+			if (client_close_or_destroy(data) != 0) {
+				dead = 1;
+			}
+		}
+	}
+
+	if (!dead && (events & EV_READ) != 0) {
+		if (client_read(data) != 0) {
+			dead = 1;
+		}
+	}
+
+	if (!dead && data->state == CLIENT_STATE_CLOSING && data->fin_sent && data->read_eof) {
+		/* the client finished sending after its answer was delivered */
+
+		client_destroy(data);
+
+		dead = 1;
+	}
+
+	if (!dead) {
+		/* resume the download once the client caught up with the data that
+		   was previously buffered */
+
+		if (data->download_paused && data->curl != NULL && data->out.slength < CLIENT_OUTPUT_MIN_SIZE) {
+			curl_easy_pause(data->curl, CURLPAUSE_RECV_CONT);
+
+			data->download_paused = 0;
+
+			if (client_kick(data) != 0) {
+				dead = 1;
+			}
+		}
+	}
+
+	if (!dead) {
+		client_event_update(data);
+	}
+
+}
+
+static void curl_socket_event_cb(evutil_socket_t fd, short events, void* arg) {
+
+	curl_socket_context_t* const context = (curl_socket_context_t*) arg;
+
+	int running = 0;
+	int flags = 0;
+
+	CURLMcode code = CURLM_OK;
+
+	(void) fd;
+
+	if ((events & EV_READ) != 0) {
+		flags |= CURL_CSELECT_IN;
+	}
+
+	if ((events & EV_WRITE) != 0) {
+		flags |= CURL_CSELECT_OUT;
+	}
+
+	code = curl_multi_socket_action(curl_multi, context->sockfd, flags, &running);
+
+	if (code != CURLM_OK) {
+		loggln(LOG_ERROR, "[error] %s: %s", strkaderr(KADERR_CURL_MULTI_ACTION_FAILURE), curl_multi_strerror(code));
+
+		return;
+	}
+
+	curl_check_completed();
+
+}
+
+static curl_socket_context_t* curl_socket_context_new(const curl_socket_t sockfd) {
+
+	curl_socket_context_t* const context = malloc(sizeof(*context));
+
+	if (context == NULL) {
+		return NULL;
+	}
+
+	context->sockfd = sockfd;
+	context->event = event_new(event_base, sockfd, 0, curl_socket_event_cb, context);
+
+	if (context->event == NULL) {
+		free(context);
+
+		return NULL;
+	}
+
+	return context;
+
+}
+
+static int curl_handle_socket(CURL* easy, curl_socket_t s, int action, void* userp, void* socketp) {
+
+	curl_socket_context_t* context = NULL;
+
+	short events = 0;
+
+	(void) easy;
+	(void) userp;
+
+	switch (action) {
+		case CURL_POLL_IN:
+		case CURL_POLL_OUT:
+		case CURL_POLL_INOUT: {
+			context = (socketp != NULL) ? (curl_socket_context_t*) socketp : curl_socket_context_new(s);
+
+			if (context == NULL) {
+				return -1;
+			}
+
+			curl_multi_assign(curl_multi, s, (void*) context);
+
+			if (action != CURL_POLL_IN) {
+				events |= EV_WRITE;
+			}
+
+			if (action != CURL_POLL_OUT) {
+				events |= EV_READ;
+			}
+
+			events |= EV_PERSIST;
+
+			event_del(context->event);
+			event_assign(context->event, event_base, context->sockfd, events, curl_socket_event_cb, context);
+			event_add(context->event, NULL);
+
+			break;
+		}
+		case CURL_POLL_REMOVE: {
+			if (socketp != NULL) {
+				context = (curl_socket_context_t*) socketp;
+
+				event_del(context->event);
+				event_free(context->event);
+
+				free(context);
+
+				curl_multi_assign(curl_multi, s, NULL);
+			}
+
+			break;
+		}
+		default: {
+			return -1;
+		}
+	}
+
+	return 0;
+
+}
+
+static int curl_handle_timeout(CURLM* multi, long timeout_ms, void* userp) {
+
+	struct timeval tv;
+
+	(void) multi;
+	(void) userp;
+
+	if (timeout_ms < 0) {
+		evtimer_del(curl_timeout_event);
+	} else {
+		if (timeout_ms == 0) {
+			timeout_ms = 1;
+		}
+
+		tv.tv_sec = timeout_ms / 1000;
+		tv.tv_usec = (timeout_ms % 1000) * 1000;
+
+		evtimer_del(curl_timeout_event);
+		evtimer_add(curl_timeout_event, &tv);
+	}
+
+	return 0;
+
+}
+
+static void curl_timeout_event_cb(evutil_socket_t fd, short events, void* arg) {
+
+	int running = 0;
+
+	CURLMcode code = CURLM_OK;
+
+	(void) fd;
+	(void) events;
+	(void) arg;
+
+	code = curl_multi_socket_action(curl_multi, CURL_SOCKET_TIMEOUT, 0, &running);
+
+	if (code != CURLM_OK) {
+		loggln(LOG_ERROR, "[error] %s: %s", strkaderr(KADERR_CURL_MULTI_ACTION_FAILURE), curl_multi_strerror(code));
+
+		return;
+	}
+
+	curl_check_completed();
+
+}
+
+static void curl_check_completed(void) {
+
+	CURLMsg* msg = NULL;
+
+	transferdata_t* data = NULL;
+
+	CURLcode easy_code = 0;
+	CURLMcode code = CURLM_OK;
+
+	int left = 0;
+
+	while ((msg = curl_multi_info_read(curl_multi, &left)) != NULL) {
+		if (msg->msg != CURLMSG_DONE) {
+			continue;
+		}
+
+		if (msg->data.result != CURLE_OK) {
+			loggln(LOG_ERROR, "[error] curl: %s", curl_easy_strerror(msg->data.result));
+		}
+
+		easy_code = curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
+
+		if (easy_code != CURLE_OK) {
+			loggln(LOG_ERROR, "[error] %s: %s", strkaderr(KADERR_CURL_GETINFO_FAILURE), curl_easy_strerror(easy_code));
+
+			curl_multi_remove_handle(curl_multi, msg->easy_handle);
+			curl_easy_cleanup(msg->easy_handle);
+
+			continue;
+		}
+
+		code = curl_multi_remove_handle(curl_multi, msg->easy_handle);
+
+		if (code != CURLM_OK) {
+			loggln(LOG_ERROR, "[error] %s: %s", strkaderr(KADERR_CURL_MULTI_REMOVE_FAILURE), curl_multi_strerror(code));
+		}
+
+		#if defined(KAD_CAPTURE)
+			capture_end(&data->capture, msg->easy_handle);
+		#endif
+
+		curl_easy_cleanup(msg->easy_handle);
+
+		data->curl = NULL;
+
+		if (data->out.slength > 0) {
+			/* the transfer is done; flush the pending response bytes to
+			   the client before closing the connection */
+
+			data->state = CLIENT_STATE_CLOSING;
+
+			client_event_update(data);
+		} else if (curl_depth > 0 && (data->remaining == 0 || data->read_eof)) {
+			/* nested inside the callback of the client itself; its memory
+			   must not be released yet */
+
+			data->destroy_pending = 1;
+		} else if (curl_depth > 0) {
+			/* nested, but the client may still be sending; linger until
+			   the callback returns, then drain */
+
+			data->state = CLIENT_STATE_CLOSING;
+
+			client_linger_close(data);
+		} else {
+			client_close_or_destroy(data);
+		}
+	}
+
+}
+
+static void accept_event_cb(evutil_socket_t listenfd, short events, void* arg) {
+
+	struct sockaddr_storage client_address;
+
+	socklen_t client_address_size = 0;
+
+	transferdata_t* data = NULL;
+
+	system_error_t error = {0};
+
+	char host[NI_MAXHOST];
+	char servname[NI_MAXSERV];
+
+	int cfd = -1;
+	int status = 0;
+
+	(void) events;
+	(void) arg;
+
+	while (1) {
+		memset(&client_address, 0, sizeof(client_address));
+
+		client_address_size = sizeof(client_address);
+
+		cfd = accept(listenfd, (struct sockaddr*) &client_address, &client_address_size);
+
+		if (cfd == -1) {
+#if defined(_WIN32)
+			status = WSAGetLastError();
+
+			if (status == WSAEWOULDBLOCK || status == WSAEINTR || status == WSAECONNRESET) {
+				break;
+			}
+#else
+			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR || errno == ECONNABORTED) {
+				break;
+			}
+#endif
+			error = get_system_error();
+
+			loggln(LOG_ERROR, "[error] could not accept incoming socket connection: %s", error.message);
+
+			break;
+		}
+
+		if (socket_nonblocking(cfd) == -1) {
+			error = get_system_error();
+
+			loggln(LOG_ERROR, "[error] could not set socket to non-blocking mode: %s", error.message);
+
+			socket_close(cfd);
+
+			continue;
+		}
+
+		status = getnameinfo((struct sockaddr*) &client_address, client_address_size, host, sizeof(host), servname, sizeof(servname), NI_NUMERICHOST | NI_NUMERICSERV);
+
+		if (status != 0) {
+			loggln(LOG_ERROR, "[error] could not get address info: %s", gai_strerror(status));
+
+			socket_close(cfd);
+
+			continue;
+		}
+
+		loggln(LOG_INFO, "[info] got connection from %s on port %s", host, servname);
+
+		data = calloc(1, sizeof(*data));
+
+		if (data == NULL) {
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+			socket_close(cfd);
+
+			continue;
+		}
+
+		data->fd = cfd;
+		data->state = CLIENT_STATE_REQUEST;
+
+		data->event = event_new(event_base, cfd, 0, client_event_cb, data);
+
+		if (data->event == NULL) {
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_EVENT_BASE_FAILURE));
+
+			client_destroy(data);
+
+			continue;
+		}
+
+		client_event_update(data);
+	}
+
 }
 
 int kad_main(int argc, argv_t** argv) {
@@ -1623,53 +2450,38 @@ int kad_main(int argc, argv_t** argv) {
 	#endif
 	
 	struct linger lingerv;
-	
+
 	struct sockaddr* sockaddress = NULL;
-	
+
 	struct sockaddr_in addr_in;
 	struct sockaddr_in6 addr_in6;
-	
-	struct sockaddr_storage client_address;
-	
-	socklen_t client_address_size = 0;
-	
+
+	struct event* listener_event = NULL;
+
 	size_t addrsize = 0;
-	
+
 	char address[512] = {0};
 	char loglevel[16] = "verbose";
 	char cacert[4096] = {0};
-	
-	char host[NI_MAXHOST];
-	char servname[NI_MAXSERV];
-	
+
 	const int reuseaddr = 1;
-	
+
 	int port = 0;
 	int value = 0;
-	
-	int position = 0;
+
 	int index = 0;
 	int version = 0;
-	
+
 	int code = 0;
-	int status = 0;
 	int err = 0;
-	
+
 	size_t size = 0;
-	
+
 	argparse_t argparse = {0};
 	const arg_t* argument = NULL;
-	
-	thread_t event_thread = {0};
-	thread_t client_thread = {0};
-	thread_t threads[KAD_DEFAULT_LISTEN_BACKLOG];
-	
-	thread_t* worker = NULL;
-	
-	int* cfd = NULL;
-	
+
 	logging_t level = LOG_QUIET;
-	
+
 	system_error_t error = {0};
 	
 	#if defined(_WIN32) && defined(_UNICODE)
@@ -1698,16 +2510,35 @@ int kad_main(int argc, argv_t** argv) {
 		return EXIT_FAILURE;
 	}
 	
+	curl_global_init(CURL_GLOBAL_ALL);
+
 	curl_multi = curl_multi_init();
-	
+
 	if (curl_multi == NULL) {
 		loggln(LOG_ERROR, "[error] could not initialize multi stack");
-		
+
 		return EXIT_FAILURE;
 	}
-	
-	thread_create(&event_thread, event_loop, NULL);
-	
+
+	event_base = event_base_new();
+
+	if (event_base == NULL) {
+		loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_EVENT_BASE_FAILURE));
+
+		return EXIT_FAILURE;
+	}
+
+	curl_timeout_event = evtimer_new(event_base, curl_timeout_event_cb, NULL);
+
+	if (curl_timeout_event == NULL) {
+		loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_EVENT_BASE_FAILURE));
+
+		return EXIT_FAILURE;
+	}
+
+	curl_multi_setopt(curl_multi, CURLMOPT_SOCKETFUNCTION, curl_handle_socket);
+	curl_multi_setopt(curl_multi, CURLMOPT_TIMERFUNCTION, curl_handle_timeout);
+
 	#if !defined(_WIN32)
 		if (sigaction(SIGPIPE, &sigpipe_action, NULL) == -1) {
 			error = get_system_error();
@@ -2077,67 +2908,39 @@ int kad_main(int argc, argv_t** argv) {
 		return EXIT_FAILURE;
 	}
 	
-	loggln(LOG_STANDARD, "Starting server at http://%s:%i (pid = %i)", address, port, getpid());
-	
-	while (1) {
-		memset(&client_address, 0, sizeof(client_address));
-		
-		client_address_size = sizeof(client_address);
-		
-		cfd = malloc(sizeof(*cfd));
-		
-		if (cfd == NULL) {
-			error = get_system_error();
-			socket_close(fd);
-			loggln(LOG_ERROR, "[error] could not allocate memory for client socket: %s", error.message);
-			
-			return EXIT_FAILURE;
-		}
-		
-		*cfd = accept(fd, (struct sockaddr*) &client_address, &client_address_size);
-		
-		if (*cfd == -1) {
-			error = get_system_error();
-			socket_close(fd);
-			loggln(LOG_ERROR, "[error] could not accept incoming socket connection: %s", error.message);
-			
-			return EXIT_FAILURE;
-		}
-		
-		status = getnameinfo((struct sockaddr*) &client_address, client_address_size, host, sizeof(host), servname, sizeof(servname), NI_NUMERICHOST | NI_NUMERICSERV);
-		
-		if (status != 0) {
-			socket_close(fd);
-			loggln(LOG_ERROR, "[error] could not get address info: %s", gai_strerror(status));
-			
-			return EXIT_FAILURE;
-		}
-		
-		loggln(LOG_INFO, "[info] got connection from %s on port %s", host, servname);
-		
-		memset(&client_thread, 0, sizeof(client_thread));
-		
-		thread_create(&client_thread, handle_request, (void*) cfd);
-		threads[position++] = client_thread;
-		
-		if (position < KAD_DEFAULT_LISTEN_BACKLOG) {
-			continue;
-		}
-		
-		loggln(LOG_WARN, "[warn] max number of concurrent connections reached");
-		
-		index = 0;
-		
-		while (index < position) {
-			worker = &threads[index++];
-			thread_wait(worker);
-		}
-		
-		position = 0;
+	if (socket_nonblocking(fd) == -1) {
+		error = get_system_error();
+		socket_close(fd);
+		loggln(LOG_ERROR, "[error] could not set socket to non-blocking mode: %s", error.message);
+
+		return EXIT_FAILURE;
 	}
-	
+
+	listener_event = event_new(event_base, fd, EV_READ | EV_PERSIST, accept_event_cb, NULL);
+
+	if (listener_event == NULL) {
+		loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_EVENT_BASE_FAILURE));
+
+		socket_close(fd);
+
+		return EXIT_FAILURE;
+	}
+
+	event_add(listener_event, NULL);
+
+	loggln(LOG_STANDARD, "Starting server at http://%s:%i (pid = %i)", address, port, getpid());
+
+	event_base_dispatch(event_base);
+
+	event_free(listener_event);
+	event_free(curl_timeout_event);
+	curl_multi_cleanup(curl_multi);
+	event_base_free(event_base);
+
+	curl_global_cleanup();
+
 	return EXIT_SUCCESS;
-	
+
 }
 
 #if !defined(KAD_BUILD_SHARED)
