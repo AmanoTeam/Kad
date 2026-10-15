@@ -783,6 +783,14 @@ if (WIN32)
 	)
 endif()
 
+if (ANDROID)
+	target_link_libraries(
+		kad
+		PRIVATE
+		log
+	)
+endif()
+
 if (KAD_STATIC)
 	install(
 		TARGETS kad

@@ -6,9 +6,37 @@
 	#include "wio.h"
 #endif
 
+#if defined(__ANDROID__)
+	#include <android/log.h>
+
+	#define LOGGING_TAG "kad"
+#endif
+
 #include "logging.h"
 
 static logging_t loglevel = LOG_VERBOSE;
+
+#if defined(__ANDROID__)
+
+static android_LogPriority logging_priority(const logging_t type) {
+	
+	switch (type) {
+		case LOG_STANDARD:
+		case LOG_INFO:
+			return ANDROID_LOG_INFO;
+		case LOG_WARN:
+			return ANDROID_LOG_WARN;
+		case LOG_ERROR:
+			return ANDROID_LOG_ERROR;
+		case LOG_VERBOSE:
+			return ANDROID_LOG_VERBOSE;
+		default:
+			return ANDROID_LOG_SILENT;
+	}
+	
+}
+
+#endif
 
 static void logging(
 	const logging_t type,
@@ -18,6 +46,11 @@ static void logging(
 ) {
 	
 	if (type <= loglevel || ((type == LOG_WARN || type == LOG_ERROR) && loglevel != LOG_QUIET)) {
+#if defined(__ANDROID__)
+		(void) ln;
+		
+		__android_log_vprint(logging_priority(type), LOGGING_TAG, format, args);
+#else
 		vfprintf(stderr, format, args);
 		
 		if (ln) {
@@ -25,6 +58,7 @@ static void logging(
 		}
 		
 		fflush(stderr);
+#endif
 	}
 	
 }
