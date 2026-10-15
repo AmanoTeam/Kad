@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <errno.h>
 
 #if defined(_WIN32)
 	#include <winsock2.h>
@@ -1186,6 +1187,12 @@ static int request_handler(void* pointer) {
 	
 	recv_size = recv(fd, buffer, MAX_HTTP_HEADERS_SIZE, 0);
 	
+#if !defined(_WIN32)
+	while (recv_size == -1 && errno == EINTR) {
+		recv_size = recv(fd, buffer, MAX_HTTP_HEADERS_SIZE, 0);
+	}
+#endif
+	
 	if (recv_size <= 0) {
 		err = KADERR_SOCKET_RECV_FAILURE;
 		goto end;
@@ -1205,6 +1212,12 @@ static int request_handler(void* pointer) {
 
 	if (is_secure) {
 		size = send(fd, "HTTP/1.0 200 OK\r\n\r\n", 19, 0);
+		
+#if !defined(_WIN32)
+		while (size == -1 && errno == EINTR) {
+			size = send(fd, "HTTP/1.0 200 OK\r\n\r\n", 19, 0);
+		}
+#endif
 		
 		if (size == -1) {
 			err = KADERR_SOCKET_SEND_FAILURE;

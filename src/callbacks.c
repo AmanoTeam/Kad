@@ -2,6 +2,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <errno.h>
 
 #include <curl/curl.h>
 
@@ -11,6 +12,47 @@
 #include "transferdata.h"
 #include "errors.h"
 #include "logging.h"
+
+static ssize_t socket_send(const int fd, const char* const buffer, const size_t size) {
+	
+	size_t offset = 0;
+	ssize_t wsize = 0;
+	
+	while (offset < size) {
+		wsize = (ssize_t) send(fd, buffer + offset, size - offset, 0);
+		
+		if (wsize == -1) {
+		#if !defined(_WIN32)
+			if (errno == EINTR) {
+				continue;
+			}
+		#endif
+			
+			return -1;
+		}
+		
+		offset += (size_t) wsize;
+	}
+	
+	return (ssize_t) size;
+	
+}
+
+static ssize_t socket_recv(const int fd, char* const buffer, const size_t size) {
+	
+#if !defined(_WIN32)
+	ssize_t rsize = 0;
+	
+	do {
+		rsize = recv(fd, buffer, size, 0);
+	} while (rsize == -1 && errno == EINTR);
+	
+	return rsize;
+#else
+	return (ssize_t) recv(fd, buffer, size, 0);
+#endif
+	
+}
 
 size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 	
@@ -65,7 +107,7 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 			wanted = data->remaining;
 		}
 		
-		rsize = (data->is_secure) ? ssl_recv(&data->context, chunk, wanted) : recv(data->fd, chunk, wanted, 0);
+		rsize = (data->is_secure) ? ssl_recv(&data->context, chunk, wanted) : socket_recv(data->fd, chunk, wanted);
 		
 		if (rsize <= 0) {
 			return CURL_READFUNC_ABORT;
@@ -103,7 +145,7 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 	
 	const size_t chunk_size = size * nmemb;
 	
-	const ssize_t wsize = (data->is_secure) ? ssl_send(context, ptr, chunk_size) : send(data->fd, ptr, chunk_size, 0);
+	const ssize_t wsize = (data->is_secure) ? ssl_send(context, ptr, chunk_size) : socket_send(data->fd, ptr, chunk_size);
 
 	if (wsize == -1) {
 		return CURL_WRITEFUNC_ERROR;
@@ -255,7 +297,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		strcat(line, message);
 		strcat(line, CRLF);
 		
-		wsize = (data->is_secure) ? ssl_send(context, line, line_size) : send(data->fd, line, line_size, 0);
+		wsize = (data->is_secure) ? ssl_send(context, line, line_size) : socket_send(data->fd, line, line_size);
 		
 		free(line);
 		line = NULL;
@@ -327,7 +369,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			strcat(line, header->value);
 			strcat(line, CRLF);
 			
-			wsize = (data->is_secure) ? ssl_send(context, line, strlen(line)) : send(data->fd, line, strlen(line), 0);
+			wsize = (data->is_secure) ? ssl_send(context, line, strlen(line)) : socket_send(data->fd, line, strlen(line));
 			
 			free(line);
 			line = NULL;
@@ -338,7 +380,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			}
 		}
 		
-		wsize = (data->is_secure) ? ssl_send(context, CRLF, strlen(CRLF)) : send(data->fd, CRLF, strlen(CRLF), 0);
+		wsize = (data->is_secure) ? ssl_send(context, CRLF, strlen(CRLF)) : socket_send(data->fd, CRLF, strlen(CRLF));
 
 		if (wsize == -1) {
 			status = -1;
