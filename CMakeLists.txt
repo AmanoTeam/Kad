@@ -314,6 +314,20 @@ if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.patched")
 	file(WRITE "${CURL_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
+if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.android-patched")
+	message("-- Patching cURL for Android")
+
+	execute_process(
+		COMMAND patch
+		--directory=${CURL_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CMAKE_CURRENT_SOURCE_DIR}/patches/android.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+
+	file(WRITE "${CURL_SOURCE_DIRECTORY}/.android-patched" "")
+endif()
+
 if (NOT EXISTS "${CURL_SOURCE_DIRECTORY}/.x509-cache-patched")
 	message("-- Patching cURL X509 cache")
 

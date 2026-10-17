@@ -1,0 +1,16 @@
+diff --git a/lib/vdns/doh.c b/lib/vdns/doh.c
+index 3b52ed9..f88e732 100644
+--- a/lib/vdns/doh.c
++++ b/lib/vdns/doh.c
+@@ -286,6 +286,11 @@ static CURLcode doh_probe_run(struct Curl_easy *data,
+   VERBOSE(doh->state.feat = &Curl_trc_feat_doh);
+   ERROR_CHECK_SETOPT(CURLOPT_URL, url);
+   ERROR_CHECK_SETOPT(CURLOPT_DEFAULT_PROTOCOL, "https");
++#if defined(USE_ARES)
++  if(CURL_EASY_STR(data, STRING_DNS_SERVERS)) {
++    ERROR_CHECK_SETOPT(CURLOPT_DNS_SERVERS, CURL_EASY_STR(data, STRING_DNS_SERVERS));
++  }
++#endif
+   ERROR_CHECK_SETOPT(CURLOPT_WRITEFUNCTION, doh_probe_write_cb);
+   ERROR_CHECK_SETOPT(CURLOPT_WRITEDATA, doh);
+   ERROR_CHECK_SETOPT(CURLOPT_POSTFIELDS, doh_req->req_body);
