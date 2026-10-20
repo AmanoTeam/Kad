@@ -121,7 +121,7 @@ static struct event* curl_timeout_event = NULL;
 
 #define KAD_CHROME_MIN_VERSION (99)
 
-#define KAD_CHROME_MAX_VERSION (157)
+#define KAD_CHROME_MAX_VERSION (160)
 
 #define KAD_CHROME_MIN_ANDROID_VERSION (132)
 
