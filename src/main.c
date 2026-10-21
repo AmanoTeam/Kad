@@ -1476,6 +1476,11 @@ static int client_start_transfer(transferdata_t* const data) {
 		goto end;
 	}
 
+	if (curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L) != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
+
 	#if defined(KAD_DISABLE_SSL_VERIFY)
 		value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 
