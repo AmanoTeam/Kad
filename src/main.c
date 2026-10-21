@@ -1521,11 +1521,6 @@ static int client_start_transfer(transferdata_t* const data) {
 		goto end;
 	}
 
-	if (curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L) != CURLE_OK) {
-		err = KADERR_CURL_SETOPT_FAILURE;
-		goto end;
-	}
-
 	#if defined(KAD_CAPTURE)
 		/* route cURL's verbose output to the debug callback so the outgoing
 		   request headers can be captured */
