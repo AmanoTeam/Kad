@@ -198,7 +198,8 @@ static const char* const CHROME_BASE_TARGETS[] = {
 	"chrome123",
 	"chrome124", "chrome124", "chrome124", "chrome124", "chrome124", "chrome124", "chrome124",
 	"chrome131",
-	"chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android"
+	"chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android", "chrome131_android",
+	"chrome150", "chrome150", "chrome150"
 };
 
 /* the sec-ch-ua client hint, whose brands rotate every milestone */
@@ -262,7 +263,10 @@ static const char* const CHROME_SEC_CH_UA[] = {
 	"sec-ch-ua: \"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"154\", \"Google Chrome\";v=\"154\"",
 	"sec-ch-ua: \"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"155\", \"Google Chrome\";v=\"155\"",
 	"sec-ch-ua: \"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
-	"sec-ch-ua: \"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"157\", \"Google Chrome\";v=\"157\""
+	"sec-ch-ua: \"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"157\", \"Google Chrome\";v=\"157\"",
+	"sec-ch-ua: \"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"158\", \"Google Chrome\";v=\"158\"",
+	"sec-ch-ua: \"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"159\", \"Google Chrome\";v=\"159\"",
+	"sec-ch-ua: \"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"160\", \"Google Chrome\";v=\"160\""
 };
 
 /* Chrome reported its full version in the user agent until Chrome 104, where
@@ -1481,6 +1485,26 @@ static int client_start_transfer(transferdata_t* const data) {
 		goto end;
 	}
 
+	if (curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, 45L) != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
+
+	if (curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 15L) != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
+
+	if (curl_easy_setopt(curl, CURLOPT_MAXAGE_CONN, 300L) != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
+
+	if (curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 8L) != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
+
 	#if defined(KAD_DISABLE_SSL_VERIFY)
 		value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 
@@ -2536,6 +2560,7 @@ int kad_main(int argc, argv_t** argv) {
 		return EXIT_FAILURE;
 	}
 
+	curl_multi_setopt(curl_multi, CURLMOPT_MAXCONNECTS, 32L);
 	curl_multi_setopt(curl_multi, CURLMOPT_SOCKETFUNCTION, curl_handle_socket);
 	curl_multi_setopt(curl_multi, CURLMOPT_TIMERFUNCTION, curl_handle_timeout);
 
@@ -2820,7 +2845,7 @@ int kad_main(int argc, argv_t** argv) {
 		}
 
 		if (version == 0) {
-			loggln(LOG_ERROR, "[error] --platform requires an edge (96 to 157), chrome (99 to 157) or firefox (99 to 157) target");
+			loggln(LOG_ERROR, "[error] --platform requires an edge (96 to 157), chrome (99 to 160) or firefox (99 to 157) target");
 
 			argparse_free(&argparse);
 
