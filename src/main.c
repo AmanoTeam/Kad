@@ -44,6 +44,7 @@
 #include "kad.h"
 #include "logging.h"
 #include "socketclose.h"
+#include "unboundshim.h"
 
 #if !defined(KAD_DISABLE_SSL_VERIFY)
 	#include "fstream.h"
@@ -2953,9 +2954,27 @@ int kad_main(int argc, argv_t** argv) {
 
 	event_add(listener_event, NULL);
 
+	/*
+	Unless the user picked explicit DNS servers, hostname resolution goes
+	through an embedded libunbound recursive resolver; if it cannot be
+	started (e.g. this build does not bundle one) the connection setup
+	falls back to the default servers below.
+	*/
+	if (dns_servers[0] == '\0') {
+		const uint16_t unbound_port = unbound_shim_start(event_base);
+
+		if (unbound_port > 0) {
+			snprintf(dns_servers, sizeof(dns_servers), "127.0.0.1:%u", unbound_port);
+
+			loggln(LOG_STANDARD, "Embedded resolver listening on 127.0.0.1:%u", unbound_port);
+		}
+	}
+
 	loggln(LOG_STANDARD, "Starting server at http://%s:%i (pid = %i)", address, port, getpid());
 
 	event_base_dispatch(event_base);
+
+	unbound_shim_stop();
 
 	event_free(listener_event);
 	event_free(curl_timeout_event);

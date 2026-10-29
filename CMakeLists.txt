@@ -96,6 +96,7 @@ set(
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/urlencode.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/urldecode.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/socketclose.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/unboundshim.c"
 	"${PICOHTTPPARSER_SOURCE_DIRECTORY}/picohttpparser.c"
 )
 
@@ -724,6 +725,168 @@ if (KAD_CAPTURE)
 		KAD_CAPTURE
 	)
 endif()
+
+set(UNBOUND_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/unbound")
+set(UNBOUND_BUILD_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/unbound-build")
+set(UNBOUND_STAGING_DIRECTORY "${UNBOUND_BUILD_DIRECTORY}/staging")
+
+if (NOT EXISTS "${UNBOUND_SOURCE_DIRECTORY}/.boringssl-patched")
+	message("-- Patching unbound for BoringSSL")
+	
+	execute_process(
+		COMMAND patch
+		--directory=${UNBOUND_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CMAKE_CURRENT_SOURCE_DIR}/patches/unbound-boringssl.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+	
+	file(WRITE "${UNBOUND_SOURCE_DIRECTORY}/.boringssl-patched" "")
+endif()
+
+file(READ "${UNBOUND_SOURCE_DIRECTORY}/configure" UNBOUND_CONFIGURE_SOURCE)
+
+string(
+	REPLACE
+	"\tas_fn_error $? \"Could not find libexpat, expat.h\" \"$LINENO\" 5"
+	"\ttrue"
+	UNBOUND_CONFIGURE_SOURCE
+	"${UNBOUND_CONFIGURE_SOURCE}"
+)
+
+file(WRITE "${UNBOUND_SOURCE_DIRECTORY}/configure" "${UNBOUND_CONFIGURE_SOURCE}")
+
+set(UNBOUND_LIBRARY "${UNBOUND_BUILD_DIRECTORY}/.libs/${CMAKE_STATIC_LIBRARY_PREFIX}unbound${CMAKE_STATIC_LIBRARY_SUFFIX}")
+
+execute_process(
+	COMMAND "${CMAKE_C_COMPILER}" -dumpmachine
+	OUTPUT_VARIABLE UNBOUND_HOST_TRIPLET
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+	COMMAND_ERROR_IS_FATAL ANY
+)
+
+if (CMAKE_C_COMPILER_ID MATCHES "Clang")
+	set(UNBOUND_PROBE_LIBS "-lcrypto -lc++ -lpthread")
+else()
+	set(UNBOUND_PROBE_LIBS "-lcrypto -lstdc++ -lpthread")
+endif()
+
+set(
+	UNBOUND_CONFIGURE_FLAGS
+	"--host=${UNBOUND_HOST_TRIPLET}"
+	"--without-pthreads"
+	"--enable-event-api"
+	"--disable-shared"
+	"--enable-static"
+	"--disable-flto"
+	"--disable-gost"
+)
+
+file(MAKE_DIRECTORY "${UNBOUND_BUILD_DIRECTORY}")
+
+	if (WIN32)
+		set(UNBOUND_CFLAGS_EXTRA "-DWIN32_LEAN_AND_MEAN -DNOCRYPT -DNOMINMAX")
+
+		set(UNBOUND_CONFIGURE_EXTRA_ENV "ac_cv_header_netioapi_h=no")
+	endif()
+
+	set(
+		UNBOUND_CONFIGURE_ENV
+		"CC=${CMAKE_C_COMPILER}"
+		"CFLAGS=${CMAKE_C_FLAGS} -O2 -fPIC ${UNBOUND_CFLAGS_EXTRA}"
+		"CPPFLAGS=-I${CMAKE_CURRENT_BINARY_DIR}/submodules/libevent/include"
+		"LDFLAGS=-L${UNBOUND_STAGING_DIRECTORY}/ssl/lib"
+		"LIBS=${UNBOUND_PROBE_LIBS}"
+		${UNBOUND_CONFIGURE_EXTRA_ENV}
+	)
+
+	add_custom_command(
+	OUTPUT "${UNBOUND_BUILD_DIRECTORY}/Makefile"
+	
+	COMMAND "${CMAKE_COMMAND}" -E make_directory
+		"${UNBOUND_STAGING_DIRECTORY}/ssl/lib"
+		"${UNBOUND_STAGING_DIRECTORY}/libevent/lib"
+	
+	COMMAND "${CMAKE_COMMAND}" -E rm -f
+		"${UNBOUND_STAGING_DIRECTORY}/ssl/include"
+		"${UNBOUND_STAGING_DIRECTORY}/ssl/lib/${KAD_LIBRARY_PREFIX}ssl${KAD_LIBRARY_SUFFIX}"
+		"${UNBOUND_STAGING_DIRECTORY}/ssl/lib/${KAD_LIBRARY_PREFIX}crypto${KAD_LIBRARY_SUFFIX}"
+		"${UNBOUND_STAGING_DIRECTORY}/libevent/include"
+		"${UNBOUND_STAGING_DIRECTORY}/libevent/lib/${KAD_LIBRARY_PREFIX}event${KAD_LIBRARY_SUFFIX}"
+	
+	COMMAND "${CMAKE_COMMAND}" -E create_symlink
+		"${BORINGSSL_SOURCE_DIRECTORY}/include"
+		"${UNBOUND_STAGING_DIRECTORY}/ssl/include"
+	
+	COMMAND "${CMAKE_COMMAND}" -E create_symlink
+		"$<TARGET_FILE:ssl>"
+		"${UNBOUND_STAGING_DIRECTORY}/ssl/lib/${KAD_LIBRARY_PREFIX}ssl${KAD_LIBRARY_SUFFIX}"
+	
+	COMMAND "${CMAKE_COMMAND}" -E create_symlink
+		"$<TARGET_FILE:crypto>"
+		"${UNBOUND_STAGING_DIRECTORY}/ssl/lib/${KAD_LIBRARY_PREFIX}crypto${KAD_LIBRARY_SUFFIX}"
+	
+	COMMAND "${CMAKE_COMMAND}" -E create_symlink
+		"${LIBEVENT_SOURCE_DIRECTORY}/include"
+		"${UNBOUND_STAGING_DIRECTORY}/libevent/include"
+	
+	COMMAND "${CMAKE_COMMAND}" -E create_symlink
+		"$<TARGET_FILE:${KAD_EVENT_LIBRARY}>"
+		"${UNBOUND_STAGING_DIRECTORY}/libevent/lib/${KAD_LIBRARY_PREFIX}event${KAD_LIBRARY_SUFFIX}"
+	
+	COMMAND
+		"${CMAKE_COMMAND}" -E env
+		${UNBOUND_CONFIGURE_ENV}
+		bash "${UNBOUND_SOURCE_DIRECTORY}/configure"
+			--with-ssl=${UNBOUND_STAGING_DIRECTORY}/ssl
+			--with-libevent=${UNBOUND_STAGING_DIRECTORY}/libevent
+			${UNBOUND_CONFIGURE_FLAGS}
+	
+	WORKING_DIRECTORY "${UNBOUND_BUILD_DIRECTORY}"
+	
+	DEPENDS
+		ssl
+		crypto
+		${KAD_EVENT_LIBRARY}
+	
+	COMMENT "-- Configuring unbound"
+	
+	VERBATIM
+)
+
+add_custom_command(
+	OUTPUT "${UNBOUND_LIBRARY}"
+	
+	COMMAND make lib
+	
+	WORKING_DIRECTORY "${UNBOUND_BUILD_DIRECTORY}"
+	
+	DEPENDS "${UNBOUND_BUILD_DIRECTORY}/Makefile"
+	
+	COMMENT "-- Building unbound"
+	
+	VERBATIM
+)
+
+add_custom_target(
+	unbound
+	ALL
+	DEPENDS "${UNBOUND_LIBRARY}"
+)
+
+add_dependencies(kad unbound)
+
+target_include_directories(
+	kad
+	PRIVATE
+	"${UNBOUND_SOURCE_DIRECTORY}/libunbound"
+)
+
+target_link_libraries(
+	kad
+	PRIVATE
+	"${UNBOUND_LIBRARY}"
+)
 
 if (WIN32)
 	target_compile_definitions(

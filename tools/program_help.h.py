@@ -83,6 +83,13 @@ parser.add_argument(
 	help = "Overwrite the path to the CA certificate bundle to use."
 )
 
+parser.add_argument(
+	"--dns-servers",
+	metavar = "LIST",
+	required = False,
+	help = "Comma-separated list of DNS servers to use. [default: the embedded recursive resolver, falling back to 8.8.8.8,8.8.4.4]"
+)
+
 os.environ["LINES"] = "1000"
 os.environ["COLUMNS"] = "1000"
 

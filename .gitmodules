@@ -40,3 +40,6 @@
 [submodule "submodules/libevent"]
 	path = submodules/libevent
 	url = https://github.com/libevent/libevent
+[submodule "submodules/unbound"]
+	path = submodules/unbound
+	url = https://github.com/NLnetLabs/unbound

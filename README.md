@@ -23,6 +23,8 @@ cmake --build ./build
 cmake --install ./build
 ```
 
+An embedded libunbound-based recursive DNS resolver is always bundled: the unbound submodule is built statically against the bundled BoringSSL and libevent and linked into the executable, and is used for hostname resolution by default instead of the fallback 8.8.8.8 and 8.8.4.4 servers; no external libunbound installation is needed.
+
 ## Usage
 
 Available options:
@@ -44,7 +46,7 @@ options:
   --proxy URL          Forward all requests through this proxy server.
   --doh-url URL        Use this DoH server for hostname resolution.
   --cacert FILE        Overwrite the path to the CA certificate bundle to use.
-  --dns-servers LIST   Comma-separated list of DNS servers to use. [default: 8.8.8.8,8.8.4.4]
+  --dns-servers LIST   Comma-separated list of DNS servers to use. [default: the embedded recursive resolver, falling back to 8.8.8.8,8.8.4.4]
 
 Note, options that take a value must use an equal sign. E.g. --host=HOST
 ```
@@ -53,6 +55,7 @@ You can start a server with all default options by simply running `kad`:
 
 ```
 $ kad
+Embedded resolver listening on 127.0.0.1:38645
 Starting server at http://127.0.0.1:4000 (pid = 478)
 
 ```

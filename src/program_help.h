@@ -6,7 +6,7 @@ This file is auto-generated. Use the tool at ../tools/program_help.h.py to regen
 #define PROGRAM_HELP_H
 
 #define PROGRAM_HELP \
-	"usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET] [--platform PLATFORM] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE]\n"\
+	"usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET] [--platform PLATFORM] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE] [--dns-servers LIST]\n"\
 	"\n"\
 	"A simple HTTP proxy server that forwards all requests through curl-impersonate.\n"\
 	"\n"\
@@ -21,6 +21,7 @@ This file is auto-generated. Use the tool at ../tools/program_help.h.py to regen
 	"  --proxy URL          Forward all requests through this proxy server.\n"\
 	"  --doh-url URL        Use this DoH server for hostname resolution.\n"\
 	"  --cacert FILE        Overwrite the path to the CA certificate bundle to use.\n"\
+	"  --dns-servers LIST   Comma-separated list of DNS servers to use. [default: the embedded recursive resolver, falling back to 8.8.8.8,8.8.4.4]\n"\
 	"\n"\
 	"Note, options that take a value must use an equal sign (e.g. --host=HOST).\n"\
 
