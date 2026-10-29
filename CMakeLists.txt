@@ -398,8 +398,22 @@ if (NOT EXISTS "${NGHTTP3_SOURCE_DIRECTORY}/.patched")
 		--input=${CURL_IMPERSONATE_SOURCE_DIRECTORY}/patches/nghttp3.patch
 		COMMAND_ERROR_IS_FATAL ANY
 	)
-	
+
 	file(WRITE "${NGHTTP3_SOURCE_DIRECTORY}/.patched" "")
+endif()
+
+if (NOT EXISTS "${CARES_SOURCE_DIRECTORY}/.patched")
+	message("-- Patching c-ares")
+
+	execute_process(
+		COMMAND patch
+		--directory=${CARES_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CMAKE_CURRENT_SOURCE_DIR}/patches/cares-hosts.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+
+	file(WRITE "${CARES_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
 file(LOCK "${CMAKE_CURRENT_SOURCE_DIR}/lock" RELEASE)

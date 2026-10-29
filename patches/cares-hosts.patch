@@ -1,0 +1,11 @@
+--- a/src/lib/ares_hosts_file.c
++++ b/src/lib/ares_hosts_file.c
+@@ -918,6 +918,8 @@
+ 
+   *path = NULL;
+ 
++  return ARES_ENOTFOUND;
++
+   if (channel->hosts_path) {
+     path_hosts = ares_strdup(channel->hosts_path);
+     if (!path_hosts) {
