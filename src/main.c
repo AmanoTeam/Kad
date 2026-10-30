@@ -82,14 +82,9 @@ static const char* const IMPERSONATE_HEADERS[] = {
 	"UA-Platform-Version",
 	"Upgrade-Insecure-Requests",
 	"Accept",
-	"User-Agent",
-	"X-Requested-With",
-	"Sec-Fetch-Site",
-	"Sec-Fetch-Mode",
-	"Sec-Fetch-User",
-	"Sec-Fetch-Dest",
 	"Accept-Encoding",
-	"Accept-Language"
+	"User-Agent",
+	"X-Requested-With"
 };
 
 #if !defined(KAD_DISABLE_SSL_VERIFY)
@@ -1445,8 +1440,7 @@ static int client_start_transfer(transferdata_t* const data) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
 		}
-	}
-	else if (curl_easy_impersonate(curl, target_impersonate, 1) != CURLE_OK) {
+	} else if (curl_easy_impersonate(curl, target_impersonate, 1) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
@@ -1576,11 +1570,62 @@ static int client_start_transfer(transferdata_t* const data) {
 		goto end;
 	}
 
+	header = http_headers_get(&data->request.headers, "Sec-Fetch-Mode");
+
+	/*
+	* Requests made using fetch() don't send these headers in real Chrome,
+	* and sending them in these cases actually breaks some sites, so strip them out.
+	*/
+	if (!(header == NULL || header->value == NULL) && strcmp(header->value, "navigate") != 0) {
+		tmp = curl_slist_append(data->headers, "Upgrade-Insecure-Requests:");
+
+		if (tmp == NULL) {
+			err = KADERR_CURL_SLIST_FAILURE;
+			goto end;
+		}
+
+		tmp = curl_slist_append(tmp, "Sec-Fetch-User:");
+
+		if (tmp == NULL) {
+			err = KADERR_CURL_SLIST_FAILURE;
+			goto end;
+		}
+		
+		header = http_headers_get(&data->request.headers, "Accept");
+		
+		if (header == NULL) {
+			tmp = curl_slist_append(tmp, "Accept:");
+
+			if (tmp == NULL) {
+				err = KADERR_CURL_SLIST_FAILURE;
+				goto end;
+			}
+		} else {
+			item = malloc(strlen(header->key) + strlen(HEADER_SEPARATOR) + strlen(header->value) + 1);
+
+			if (item == NULL) {
+				err = KADERR_MEMORY_ALLOCATE_FAILURE;
+				goto end;
+			}
+
+			strcpy(item, header->key);
+			strcat(item, HEADER_SEPARATOR);
+			strcat(item, header->value);
+
+			tmp = curl_slist_append(tmp, item);
+
+			free(item);
+			item = NULL;
+		}
+		
+		data->headers = tmp;
+	}
+
 	for (index = 0; index < data->request.headers.offset; index++) {
 		header = &data->request.headers.items[index];
 
 		status = 0;
-
+		
 		for (subindex = 0; subindex < sizeof(IMPERSONATE_HEADERS) / sizeof(*IMPERSONATE_HEADERS); subindex++) {
 			name = IMPERSONATE_HEADERS[subindex];
 
@@ -1588,6 +1633,10 @@ static int client_start_transfer(transferdata_t* const data) {
 
 			if (!status) {
 				continue;
+			}
+
+			if (strcasecmp(header->key, "Requested-With") == 0 && strcmp(header->value, "XMLHttpRequest") == 0) {
+				status = 0;
 			}
 
 			break;
