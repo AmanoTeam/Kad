@@ -765,10 +765,32 @@ execute_process(
 	COMMAND_ERROR_IS_FATAL ANY
 )
 
+set(UNBOUND_CC_EXTRA "")
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Android")
+	if (CMAKE_C_COMPILER_ID MATCHES "Clang")
+		set(UNBOUND_CC_EXTRA "--target=${CMAKE_C_COMPILER_TARGET} --sysroot=${CMAKE_SYSROOT}")
+	endif()
+
+	if (ANDROID_ABI STREQUAL "armeabi-v7a")
+		set(UNBOUND_HOST_TRIPLET "arm-linux-androideabi")
+	elseif (ANDROID_ABI STREQUAL "x86")
+		set(UNBOUND_HOST_TRIPLET "i686-linux-android")
+	elseif (ANDROID_ABI STREQUAL "x86_64")
+		set(UNBOUND_HOST_TRIPLET "x86_64-linux-android")
+	else()
+		set(UNBOUND_HOST_TRIPLET "aarch64-linux-android")
+	endif()
+endif()
+
 if (CMAKE_C_COMPILER_ID MATCHES "Clang")
-	set(UNBOUND_PROBE_LIBS "-lcrypto -lc++ -lpthread")
+	set(UNBOUND_PROBE_LIBS "-lcrypto -lc++")
 else()
-	set(UNBOUND_PROBE_LIBS "-lcrypto -lstdc++ -lpthread")
+	set(UNBOUND_PROBE_LIBS "-lcrypto -lstdc++")
+endif()
+
+if (NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+	set(UNBOUND_PROBE_LIBS "${UNBOUND_PROBE_LIBS} -lpthread")
 endif()
 
 set(
@@ -792,7 +814,7 @@ file(MAKE_DIRECTORY "${UNBOUND_BUILD_DIRECTORY}")
 
 	set(
 		UNBOUND_CONFIGURE_ENV
-		"CC=${CMAKE_C_COMPILER}"
+		"CC=${CMAKE_C_COMPILER} ${UNBOUND_CC_EXTRA}"
 		"CFLAGS=${CMAKE_C_FLAGS} -O2 -fPIC ${UNBOUND_CFLAGS_EXTRA}"
 		"CPPFLAGS=-I${CMAKE_CURRENT_BINARY_DIR}/submodules/libevent/include"
 		"LDFLAGS=-L${UNBOUND_STAGING_DIRECTORY}/ssl/lib"
