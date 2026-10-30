@@ -56,7 +56,7 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 	/* the rest of the request body has not been received yet; pause the
 	   transfer until the client sends more data */
 
-	data->upload_paused = 1;
+	data->flags |= TD_PAUSE_UP;
 
 	return CURL_READFUNC_PAUSE;
 

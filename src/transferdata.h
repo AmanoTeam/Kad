@@ -26,6 +26,13 @@ enum ClientState {
 
 typedef enum ClientState client_state_t;
 
+#define TD_SECURE (1 << 0)
+#define TD_EOF (1 << 1)
+#define TD_FIN (1 << 2)
+#define TD_PAUSE_UP (1 << 3)
+#define TD_PAUSE_DOWN (1 << 4)
+#define TD_DESTROY (1 << 5)
+
 struct transferdata {
 	ssl_context_t context;
 	http_request_t request;
@@ -35,13 +42,8 @@ struct transferdata {
 	capture_t capture;
 #endif
 	int fd;
-	int is_secure;
-	int read_eof;
-	int fin_sent;
+	int flags;
 	int wait;
-	int upload_paused;
-	int download_paused;
-	int destroy_pending;
 	int events;
 	int retries;
 	bool retryable;

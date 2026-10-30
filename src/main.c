@@ -1180,7 +1180,7 @@ static void client_event_update(transferdata_t* const data) {
 			events |= EV_READ;
 		}
 	} else {
-		if (!data->read_eof) {
+		if ((data->flags & TD_EOF) == 0) {
 			events |= EV_READ;
 		}
 
@@ -1192,7 +1192,7 @@ static void client_event_update(transferdata_t* const data) {
 	/* while lingering, the watcher bounds how long the client can keep
 	   sending after its answer was already delivered */
 
-	if (data->state == CLIENT_STATE_CLOSING && data->fin_sent) {
+	if (data->state == CLIENT_STATE_CLOSING && (data->flags & TD_FIN) != 0) {
 		tv.tv_sec = CLIENT_DRAIN_TIMEOUT;
 		tv.tv_usec = 0;
 
@@ -1225,7 +1225,7 @@ static void client_linger_close(transferdata_t* const data) {
 	destroy the response queued for it.
 	*/
 
-	if (data->is_secure) {
+	if ((data->flags & TD_SECURE) != 0) {
 		/* best-effort TLS close notify; the write half is shut down
 		   right after regardless */
 
@@ -1234,7 +1234,7 @@ static void client_linger_close(transferdata_t* const data) {
 
 	socket_shutdown_write(data->fd);
 
-	data->fin_sent = 1;
+	data->flags |= TD_FIN;
 
 	/* force the watcher to be rearmed along with the drain deadline */
 
@@ -1251,7 +1251,7 @@ the rest of its request; returns (-1) when the client was destroyed.
 
 static int client_close_or_destroy(transferdata_t* const data) {
 
-	if (data->remaining > 0 && !data->read_eof && data->state != CLIENT_STATE_HANDSHAKE && data->state != CLIENT_STATE_REQUEST) {
+	if (data->remaining > 0 && (data->flags & TD_EOF) == 0 && data->state != CLIENT_STATE_HANDSHAKE && data->state != CLIENT_STATE_REQUEST) {
 		data->state = CLIENT_STATE_CLOSING;
 
 		client_linger_close(data);
@@ -1275,7 +1275,7 @@ static int client_flush(transferdata_t* const data) {
 	while (offset < data->out.slength) {
 		wait = 0;
 
-		size = (data->is_secure)
+		size = ((data->flags & TD_SECURE) != 0)
 			? ssl_send(&data->context, data->out.s + offset, data->out.slength - offset, &wait)
 			: socket_write(data->fd, data->out.s + offset, data->out.slength - offset, &wait);
 
@@ -1325,9 +1325,9 @@ int client_write(transferdata_t* const data, const char* const buffer, const siz
 	/* apply backpressure once too much response data is waiting to be
 	   sent to a slow client */
 
-	if (data->curl != NULL && !data->download_paused && data->out.slength >= CLIENT_OUTPUT_MAX_SIZE) {
+	if (data->curl != NULL && (data->flags & TD_PAUSE_DOWN) == 0 && data->out.slength >= CLIENT_OUTPUT_MAX_SIZE) {
 		if (curl_easy_pause(data->curl, CURLPAUSE_RECV) == CURLE_OK) {
-			data->download_paused = 1;
+			data->flags |= TD_PAUSE_DOWN;
 		}
 	}
 
@@ -1358,8 +1358,8 @@ static int client_kick(transferdata_t* const data) {
 
 	curl_depth--;
 
-	if (data->destroy_pending) {
-		data->destroy_pending = 0;
+	if ((data->flags & TD_DESTROY) != 0) {
+		data->flags &= ~TD_DESTROY;
 
 		client_close_or_destroy(data);
 	}
@@ -1892,7 +1892,7 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 
 	buffer_free(&data->in);
 
-	if (data->request.method == CONNECT && !data->is_secure) {
+	if (data->request.method == CONNECT && (data->flags & TD_SECURE) == 0) {
 		/* the client wants to tunnel a secure connection through the
 		   proxy; accept the tunnel and start the TLS handshake */
 
@@ -1917,7 +1917,7 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 			return -1;
 		}
 
-		data->is_secure = 1;
+		data->flags |= TD_SECURE;
 		data->state = CLIENT_STATE_HANDSHAKE;
 
 		return 0;
@@ -1992,7 +1992,7 @@ static int client_read(transferdata_t* const data) {
 
 	int readable = 1;
 
-	while (readable && !data->read_eof) {
+	while (readable && (data->flags & TD_EOF) == 0) {
 		readable = 0;
 
 		if (data->state == CLIENT_STATE_HANDSHAKE) {
@@ -2025,7 +2025,7 @@ static int client_read(transferdata_t* const data) {
 		/* the lingering phase reads and discards the raw bytes left in
 		   the connection, as the TLS layer is gone by then */
 
-		size = (data->is_secure && !data->fin_sent)
+		size = ((data->flags & TD_SECURE) != 0 && (data->flags & TD_FIN) == 0)
 			? ssl_recv(&data->context, chunk, sizeof(chunk), &wait)
 			: socket_read(data->fd, chunk, sizeof(chunk), &wait);
 
@@ -2040,7 +2040,7 @@ static int client_read(transferdata_t* const data) {
 				return -1;
 			}
 
-			data->read_eof = 1;
+			data->flags |= TD_EOF;
 
 			break;
 		}
@@ -2098,10 +2098,10 @@ static int client_read(transferdata_t* const data) {
 			/* data->remaining is only decremented as cURL consumes the
 			   buffered body, exactly like in the previous design */
 
-			if (data->upload_paused && data->curl != NULL) {
+			if ((data->flags & TD_PAUSE_UP) != 0 && data->curl != NULL) {
 				curl_easy_pause(data->curl, CURLPAUSE_SEND_CONT);
 
-				data->upload_paused = 0;
+				data->flags &= ~TD_PAUSE_UP;
 
 				/* the client cannot be destroyed while the transfer is
 				   being resumed, but it may be destroyed right after */
@@ -2161,7 +2161,7 @@ static void client_event_cb(evutil_socket_t fd, short events, void* arg) {
 		}
 	}
 
-	if (!dead && data->state == CLIENT_STATE_CLOSING && data->fin_sent && data->read_eof) {
+	if (!dead && data->state == CLIENT_STATE_CLOSING && (data->flags & TD_FIN) != 0 && (data->flags & TD_EOF) != 0) {
 		/* the client finished sending after its answer was delivered */
 
 		client_destroy(data);
@@ -2173,10 +2173,10 @@ static void client_event_cb(evutil_socket_t fd, short events, void* arg) {
 		/* resume the download once the client caught up with the data that
 		   was previously buffered */
 
-		if (data->download_paused && data->curl != NULL && data->out.slength < CLIENT_OUTPUT_MIN_SIZE) {
+		if ((data->flags & TD_PAUSE_DOWN) != 0 && data->curl != NULL && data->out.slength < CLIENT_OUTPUT_MIN_SIZE) {
 			curl_easy_pause(data->curl, CURLPAUSE_RECV_CONT);
 
-			data->download_paused = 0;
+			data->flags &= ~TD_PAUSE_DOWN;
 
 			if (client_kick(data) != 0) {
 				dead = 1;
@@ -2451,8 +2451,7 @@ static void curl_check_completed(void) {
 
 			buffer_free(&data->buffer);
 
-			data->download_paused = 0;
-			data->upload_paused = 0;
+			data->flags &= ~(TD_PAUSE_DOWN | TD_PAUSE_UP);
 
 			loggln(LOG_WARN, "[warning] request to %s failed (%s), retrying (attempt %i of %i)", data->request.uri, curl_easy_strerror(msg->data.result), data->retries, retry_limit);
 
@@ -2480,11 +2479,11 @@ static void curl_check_completed(void) {
 			data->state = CLIENT_STATE_CLOSING;
 
 			client_event_update(data);
-		} else if (curl_depth > 0 && (data->remaining == 0 || data->read_eof)) {
+		} else if (curl_depth > 0 && (data->remaining == 0 || (data->flags & TD_EOF) != 0)) {
 			/* nested inside the callback of the client itself; its memory
 			   must not be released yet */
 
-			data->destroy_pending = 1;
+			data->flags |= TD_DESTROY;
 		} else if (curl_depth > 0) {
 			/* nested, but the client may still be sending; linger until
 			   the callback returns, then drain */
