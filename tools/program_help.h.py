@@ -90,6 +90,13 @@ parser.add_argument(
 	help = "Comma-separated list of DNS servers to use. [default: the embedded recursive resolver, falling back to 8.8.8.8,8.8.4.4]"
 )
 
+parser.add_argument(
+	"--retry",
+	metavar = "COUNT",
+	required = False,
+	help = "Retry idempotent requests whose transfer failed with a retryable error (send, receive or timeout failures) up to COUNT times, when no response bytes were delivered to the client yet. [default: 0]"
+)
+
 os.environ["LINES"] = "1000"
 os.environ["COLUMNS"] = "1000"
 

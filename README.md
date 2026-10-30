@@ -31,7 +31,7 @@ Available options:
 
 ```
 $ kad --help
-usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET] [--platform PLATFORM] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE] [--dns-servers LIST]
+usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET] [--platform PLATFORM] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE] [--dns-servers LIST] [--retry COUNT]
 
 A simple HTTP proxy server that forwards all requests through curl-impersonate.
 
@@ -47,6 +47,7 @@ options:
   --doh-url URL        Use this DoH server for hostname resolution.
   --cacert FILE        Overwrite the path to the CA certificate bundle to use.
   --dns-servers LIST   Comma-separated list of DNS servers to use. [default: the embedded recursive resolver, falling back to 8.8.8.8,8.8.4.4]
+  --retry COUNT        Retry idempotent requests whose transfer failed with a retryable error (send, receive or timeout failures) up to COUNT times, when no response bytes were delivered to the client yet. [default: 0]
 
 Note, options that take a value must use an equal sign. E.g. --host=HOST
 ```

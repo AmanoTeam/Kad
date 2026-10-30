@@ -59,6 +59,9 @@ static const char KAD_DEFAULT_LISTEN_ADDRESS[] = "127.0.0.1";
 #define KAD_DEFAULT_LISTEN_PORT (4000)
 #define KAD_DEFAULT_LISTEN_BACKLOG (100)
 
+#define KAD_RETRY_MIN (0)
+#define KAD_RETRY_MAX (32)
+
 static const char* const IMPERSONATE_HEADERS[] = {
 	"Connection",
 	"Upgrade",
@@ -891,6 +894,8 @@ static char doh_url[4096] = {0};
 
 static char dns_servers[512] = {0};
 
+static int retry_limit = KAD_RETRY_MIN;
+
 #if !defined(KAD_DISABLE_SSL_VERIFY)
 static int load_ssl_certificates(const char* const cacert) {
 	/*
@@ -1400,6 +1405,8 @@ static int client_start_transfer(transferdata_t* const data) {
 	char* item = NULL;
 
 	struct curl_slist* tmp = NULL;
+
+	data->retryable = true;
 
 	size_t index = 0;
 	size_t subindex = 0;
@@ -2342,6 +2349,63 @@ static void curl_timeout_event_cb(evutil_socket_t fd, short events, void* arg) {
 
 }
 
+static int curl_retryable(CURL* const curl, const CURLcode code) {
+
+	switch (code) {
+		case CURLE_HTTP_RETURNED_ERROR: {
+			long status_code = 0;
+
+			curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
+
+			if (status_code == 408 || status_code == 429 || status_code == 500 ||
+				status_code == 502 || status_code == 503 || status_code == 504) {
+				return 1;
+			}
+
+			break;
+		}
+		case CURLE_SEND_ERROR:
+		case CURLE_OPERATION_TIMEDOUT:
+		case CURLE_PARTIAL_FILE:
+		case CURLE_RECV_ERROR:
+			return 1;
+		default:
+			break;
+	}
+
+	return 0;
+
+}
+
+static int client_retryable(transferdata_t* const data, CURL* const curl, const CURLcode code) {
+
+	switch (data->request.method) {
+		case GET:
+		case HEAD:
+		case PUT:
+		case DELETE:
+		case OPTIONS:
+		case TRACE:
+			break;
+		default:
+			return 0;
+	}
+
+	/* the request can only be replayed while no response bytes were
+	   delivered to the client and its body was not consumed by cURL */
+
+	if (!data->retryable) {
+		return 0;
+	}
+
+	if (data->retries >= retry_limit) {
+		return 0;
+	}
+
+	return curl_retryable(curl, code);
+
+}
+
 static void curl_check_completed(void) {
 
 	CURLMsg* msg = NULL;
@@ -2377,6 +2441,28 @@ static void curl_check_completed(void) {
 
 		if (code != CURLM_OK) {
 			loggln(LOG_ERROR, "[error] %s: %s", strkaderr(KADERR_CURL_MULTI_REMOVE_FAILURE), curl_multi_strerror(code));
+		}
+
+		if (msg->data.result != CURLE_OK && client_retryable(data, msg->easy_handle, msg->data.result)) {
+			data->retries++;
+
+			/* the transfer failed, but it is still retryable; discard any
+			   partially received response data and queue it again */
+
+			buffer_free(&data->buffer);
+
+			data->download_paused = 0;
+			data->upload_paused = 0;
+
+			loggln(LOG_WARN, "[warning] request to %s failed (%s), retrying (attempt %i of %i)", data->request.uri, curl_easy_strerror(msg->data.result), data->retries, retry_limit);
+
+			code = curl_multi_add_handle(curl_multi, msg->easy_handle);
+
+			if (code == CURLM_OK) {
+				continue;
+			}
+
+			loggln(LOG_ERROR, "[error] could not add handle to multi stack: %s", curl_multi_strerror(code));
 		}
 
 		#if defined(KAD_CAPTURE)
@@ -2798,6 +2884,26 @@ int kad_main(int argc, argv_t** argv) {
 			}
 
 			strcpy(dns_servers, argument->value);
+		} else if (strcmp(argument->key, "retry") == 0) {
+			if (argument->value == NULL) {
+				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			value = atoi(argument->value);
+
+			if (value < KAD_RETRY_MIN || value > KAD_RETRY_MAX) {
+				loggln(LOG_ERROR, "[error] retry count out of range: %i (valid: %i to %i)", value, KAD_RETRY_MIN, KAD_RETRY_MAX);
+
+				argparse_free(&argparse);
+
+				return EXIT_FAILURE;
+			}
+
+			retry_limit = value;
 		} else if (strcmp(argument->key, "cacert") == 0) {
 			if (argument->value == NULL) {
 				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);

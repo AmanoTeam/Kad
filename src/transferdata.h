@@ -2,6 +2,7 @@
 #define TRANSFERDATA_H
 
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include <curl/curl.h>
 
@@ -42,6 +43,8 @@ struct transferdata {
 	int download_paused;
 	int destroy_pending;
 	int events;
+	int retries;
+	bool retryable;
 	client_state_t state;
 	size_t remaining;
 	size_t request_size;

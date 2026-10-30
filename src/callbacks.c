@@ -39,6 +39,8 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 
 		memcpy(dest, data->request.body.content, buffered);
 
+		data->retryable = false;
+
 		#if defined(KAD_CAPTURE)
 			capture_request_body(&data->capture, data->request.body.content, buffered);
 		#endif
@@ -76,6 +78,8 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 	transferdata_t* const data = (transferdata_t*) userp;
 
 	const size_t chunk_size = size * nmemb;
+
+	data->retryable = false;
 
 	if (client_write(data, ptr, chunk_size) != 0) {
 		return CURL_WRITEFUNC_ERROR;
@@ -223,6 +227,8 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		strcat(line, SPACE);
 		strcat(line, message);
 		strcat(line, CRLF);
+
+		data->retryable = false;
 
 		if (client_write(data, line, line_size) != 0) {
 			free(line);
