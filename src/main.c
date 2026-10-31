@@ -1507,6 +1507,16 @@ static int client_start_transfer(transferdata_t* const data) {
 		goto end;
 	}
 
+	if (curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 4096L) != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
+
+	if (curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 8L) != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
+
 	#if defined(KAD_DISABLE_SSL_VERIFY)
 		value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 
@@ -2368,6 +2378,7 @@ static int curl_retryable(CURL* const curl, const CURLcode code) {
 		case CURLE_OPERATION_TIMEDOUT:
 		case CURLE_PARTIAL_FILE:
 		case CURLE_RECV_ERROR:
+		case CURLE_SSL_CONNECT_ERROR:
 			return 1;
 		default:
 			break;
