@@ -14,6 +14,7 @@ declare -ra targets=(
 	'picohttpparser'
 	'zlib'
 	'zstd'
+	'unbound'
 )
 
 for target in "${targets[@]}"; do
