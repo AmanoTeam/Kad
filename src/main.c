@@ -702,8 +702,7 @@ static int chrome_target_version(const char* const target, const int android) {
 		if (version < KAD_CHROME_MIN_ANDROID_VERSION || version > KAD_CHROME_MAX_VERSION) {
 			return 0;
 		}
-	}
-	else {
+	} else {
 		if (sscanf(target, "chrome%i%n", &version, &offset) != 1 || offset == 0 || target[offset] != '\0') {
 			return 0;
 		}
@@ -775,12 +774,10 @@ static int set_impersonate_headers(CURL* curl, const int browser, const int vers
 		if (version < 133) {
 			era_headers = FIREFOX_HEADERS_LEGACY;
 			era_size = (sizeof(FIREFOX_HEADERS_LEGACY) / sizeof(FIREFOX_HEADERS_LEGACY[0]));
-		}
-		else if (version < 147) {
+		} else if (version < 147) {
 			era_headers = FIREFOX_HEADERS_MODERN;
 			era_size = (sizeof(FIREFOX_HEADERS_MODERN) / sizeof(FIREFOX_HEADERS_MODERN[0]));
-		}
-		else {
+		} else {
 			era_headers = FIREFOX_HEADERS_CURRENT;
 			era_size = (sizeof(FIREFOX_HEADERS_CURRENT) / sizeof(FIREFOX_HEADERS_CURRENT[0]));
 		}
@@ -790,21 +787,17 @@ static int set_impersonate_headers(CURL* curl, const int browser, const int vers
 		if (chrome_headers_append(&headers, user_agent) != 0) {
 			return -1;
 		}
-	}
-	else {
+	} else {
 		if (version < 110) {
 			era_headers = CHROME_HEADERS_LEGACY;
 			era_size = (sizeof(CHROME_HEADERS_LEGACY) / sizeof(CHROME_HEADERS_LEGACY[0]));
-		}
-		else if (version < 123) {
+		} else if (version < 123) {
 			era_headers = CHROME_HEADERS_PRE_ZSTD;
 			era_size = (sizeof(CHROME_HEADERS_PRE_ZSTD) / sizeof(CHROME_HEADERS_PRE_ZSTD[0]));
-		}
-		else if (version < 124) {
+		} else if (version < 124) {
 			era_headers = CHROME_HEADERS_ZSTD;
 			era_size = (sizeof(CHROME_HEADERS_ZSTD) / sizeof(CHROME_HEADERS_ZSTD[0]));
-		}
-		else {
+		} else {
 			era_headers = CHROME_HEADERS_MODERN;
 			era_size = (sizeof(CHROME_HEADERS_MODERN) / sizeof(CHROME_HEADERS_MODERN[0]));
 		}
@@ -812,27 +805,23 @@ static int set_impersonate_headers(CURL* curl, const int browser, const int vers
 		if (browser == KAD_BROWSER_EDGE && platform == KAD_CHROME_PLATFORM_ANDROID && version <= KAD_CHROME_ANDROID_MAX_LEGACY_VERSION) {
 			if (version >= KAD_CHROME_ANDROID_MIN_LEGACY_VERSION) {
 				ua_version = CHROME_ANDROID_FULL_UA_VERSIONS[version - KAD_CHROME_ANDROID_MIN_LEGACY_VERSION];
-			}
-			else {
+			} else {
 				snprintf(ua_version_buffer, sizeof(ua_version_buffer), "%i.0.0.0", version);
 
 				ua_version = ua_version_buffer;
 			}
 
 			snprintf(user_agent, sizeof(user_agent), EDGE_ANDROID_LEGACY_UA_FORMAT, ua_version, EDGE_VERSIONS[version - KAD_EDGE_MIN_VERSION]);
-		}
-		else {
+		} else {
 			if (browser == KAD_BROWSER_CHROME && platform == KAD_CHROME_PLATFORM_ANDROID && version >= KAD_CHROME_ANDROID_MIN_LEGACY_VERSION && version <= KAD_CHROME_ANDROID_MAX_LEGACY_VERSION) {
 				ua_format = CHROME_ANDROID_LEGACY_UA_FORMAT;
 				ua_version = CHROME_ANDROID_FULL_UA_VERSIONS[version - KAD_CHROME_ANDROID_MIN_LEGACY_VERSION];
-			}
-			else {
+			} else {
 				ua_format = CHROME_PLATFORMS[platform].user_agent_format;
 
 				if (version >= KAD_CHROME_MIN_VERSION && version < 104) {
 					ua_version = CHROME_FULL_UA_VERSIONS[version - KAD_CHROME_MIN_VERSION];
-				}
-				else {
+				} else {
 					snprintf(ua_version_buffer, sizeof(ua_version_buffer), "%i.0.0.0", version);
 
 					ua_version = ua_version_buffer;
@@ -858,9 +847,11 @@ static int set_impersonate_headers(CURL* curl, const int browser, const int vers
 	}
 
 	for (index = 0; index < era_size; index++) {
-		if (chrome_headers_append(&headers, era_headers[index]) != 0) {
-			return -1;
+		if (chrome_headers_append(&headers, era_headers[index]) == 0) {
+			continue;
 		}
+
+		return -1;
 	}
 
 	if (curl_easy_setopt(curl, CURLOPT_HTTPBASEHEADER, headers) != CURLE_OK) {
@@ -2992,15 +2983,13 @@ int kad_main(int argc, argv_t** argv) {
 		if (version != 0) {
 			impersonate_target_base = EDGE_BASE_TARGETS[version - KAD_EDGE_MIN_VERSION];
 			impersonate_target_browser = KAD_BROWSER_EDGE;
-		}
-		else {
+		} else {
 			version = target_version(target_impersonate, "chrome", KAD_CHROME_MIN_VERSION, KAD_CHROME_MAX_VERSION);
 
 			if (version != 0) {
 				impersonate_target_base = CHROME_BASE_TARGETS[version - KAD_CHROME_MIN_VERSION];
 				impersonate_target_browser = KAD_BROWSER_CHROME;
-			}
-			else {
+			} else {
 				version = target_version(target_impersonate, "firefox", KAD_FIREFOX_MIN_VERSION, KAD_FIREFOX_MAX_VERSION);
 
 				if (version != 0) {

@@ -464,9 +464,11 @@ static json_t* capture_headers_json(const char* const buffer, const size_t size,
 			continue;
 		}
 
-		if (capture_json_set_string(object, items[index].key, items[index].value) != 0) {
-			goto failure;
+		if (capture_json_set_string(object, items[index].key, items[index].value) == 0) {
+			continue;
 		}
+
+		goto failure;
 	}
 
 	for (index = 0; index < offset; index++) {

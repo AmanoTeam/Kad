@@ -172,10 +172,12 @@ int argparse_init(
 	while (argparse_next(parser, &argument) != NULL) {
 		parser->arguments.items[parser->arguments.offset++] = argument;
 		
-		if (argument.key == NULL && argument.value == NULL) {
-			err = KADERR_ARGPARSE_ARGUMENT_EMPTY;
-			goto end;
+		if (argument.key != NULL || argument.value != NULL) {
+			continue;
 		}
+		
+		err = KADERR_ARGPARSE_ARGUMENT_EMPTY;
+		goto end;
 	}
 	
 	for (index = 0; index < parser->arguments.offset; index++) {

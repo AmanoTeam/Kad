@@ -183,8 +183,7 @@ static void resolve_callback(
 			
 			free(pkt);
 		}
-	}
-	else {
+	} else {
 		if (sec == 1 && why_bogus != NULL) {
 			loggln(LOG_VERBOSE, "[unbound-shim] bogus answer rejected: %s", why_bogus);
 		}
@@ -336,19 +335,23 @@ uint16_t unbound_shim_start(struct event_base* const event_base) {
 	}
 	
 	for (index = 0; index < (sizeof(options) / sizeof(*options)); index++) {
-		if (ub_ctx_set_option(shim_ctx, options[index].key, options[index].value) != 0) {
-			loggln(LOG_ERROR, "[unbound-shim] could not set option %s", options[index].key);
-			
-			goto error;
+		if (ub_ctx_set_option(shim_ctx, options[index].key, options[index].value) == 0) {
+			continue;
 		}
+		
+		loggln(LOG_ERROR, "[unbound-shim] could not set option %s", options[index].key);
+		
+		goto error;
 	}
 	
 	for (index = 0; index < (sizeof(trust_anchors) / sizeof(*trust_anchors)); index++) {
-		if (ub_ctx_set_option(shim_ctx, "trust-anchor:", trust_anchors[index]) != 0) {
-			loggln(LOG_ERROR, "[unbound-shim] could not set the root trust anchors");
-			
-			goto error;
+		if (ub_ctx_set_option(shim_ctx, "trust-anchor:", trust_anchors[index]) == 0) {
+			continue;
 		}
+		
+		loggln(LOG_ERROR, "[unbound-shim] could not set the root trust anchors");
+		
+		goto error;
 	}
 	
 	sock = socket(AF_INET, SOCK_DGRAM, 0);
