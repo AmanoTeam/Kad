@@ -274,7 +274,7 @@ uint16_t unbound_shim_start(struct event_base* const event_base) {
 		const char* key;
 		const char* value;
 	} options[] = {
-		{"verbosity:", "0"},
+		{"verbosity:", "3"},
 		{"log-servfail:", "yes"},
 		{"hide-version:", "yes"},
 		{"hide-identity:", "yes"},
@@ -291,6 +291,8 @@ uint16_t unbound_shim_start(struct event_base* const event_base) {
 		{"qname-minimisation-strict:", "no"},
 		{"deny-any:", "yes"},
 		{"use-caps-for-id:", "yes"},
+		{"outbound-msg-retry:", "1"},
+		{"max-sent-count:", "8"},
 		{"minimal-responses:", "yes"},
 		{"aggressive-nsec:", "yes"},
 		{"harden-dnssec-stripped:", "yes"},
@@ -302,8 +304,9 @@ uint16_t unbound_shim_start(struct event_base* const event_base) {
 		{"rrset-cache-size:", "50m"},
 		{"cache-max-ttl:", "3600"},
 		{"cache-min-ttl:", "1800"},
-		{"infra-host-ttl:", "1000"},
+		{"infra-host-ttl:", "120"},
 		{"infra-cache-min-rtt:", "50"},
+		{"infra-cache-max-rtt:", "1500"},
 		{"prefetch:", "yes"},
 		{"trust-anchor-signaling:", "no"}
 	};
