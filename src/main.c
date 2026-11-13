@@ -1352,7 +1352,9 @@ static int client_kick(transferdata_t* const data) {
 	if ((data->flags & TD_DESTROY) != 0) {
 		data->flags &= ~TD_DESTROY;
 
-		client_close_or_destroy(data);
+		if (client_close_or_destroy(data) != 0) {
+			return -1;
+		}
 	}
 
 	return 0;
