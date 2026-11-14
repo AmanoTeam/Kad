@@ -46,11 +46,9 @@
 #include "socketclose.h"
 #include "unboundshim.h"
 
-#if !defined(KAD_DISABLE_SSL_VERIFY)
-	#include "fstream.h"
-	#include "getexec.h"
-	#include "sep.h"
-#endif
+#include "fstream.h"
+#include "getexec.h"
+#include "sep.h"
 
 #define KAD_DEFAULT_IMPERSONATE_TARGET "chrome116"
 
@@ -90,17 +88,15 @@ static const char* const IMPERSONATE_HEADERS[] = {
 	"X-Requested-With"
 };
 
-#if !defined(KAD_DISABLE_SSL_VERIFY)
-	static const char CA_CERT_FILENAME[] =
-		PATHSEP_M
-		"etc"
-		PATHSEP_M
-		"tls"
-		PATHSEP_M
-		"cert.pem";
-	
-	static char* ca_bundle_global = NULL;
-#endif
+static const char CA_CERT_FILENAME[] =
+	PATHSEP_M
+	"etc"
+	PATHSEP_M
+	"tls"
+	PATHSEP_M
+	"cert.pem";
+
+static char* ca_bundle_global = NULL;
 
 static int fd = 0;
 
@@ -887,7 +883,8 @@ static char dns_servers[512] = {0};
 
 static int retry_limit = KAD_RETRY_MIN;
 
-#if !defined(KAD_DISABLE_SSL_VERIFY)
+static int ssl_verify = 1;
+
 static int load_ssl_certificates(const char* const cacert) {
 	/*
 	Locates the CA certificate bundle file for cURL to use.
@@ -1006,9 +1003,8 @@ static int load_ssl_certificates(const char* const cacert) {
 	free(ca_bundle);
 	
 	return err;
-	
+
 }
-#endif
 
 #define CLIENT_OUTPUT_MAX_SIZE (1024 * 1024)
 #define CLIENT_OUTPUT_MIN_SIZE (256 * 1024)
@@ -1510,7 +1506,7 @@ static int client_start_transfer(transferdata_t* const data) {
 		goto end;
 	}
 
-	#if defined(KAD_DISABLE_SSL_VERIFY)
+	if (!ssl_verify) {
 		value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 
 		if (value != CURLE_OK) {
@@ -1538,12 +1534,10 @@ static int client_start_transfer(transferdata_t* const data) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
 		}
-	#else
-		if (curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle_global) != CURLE_OK) {
-			err = KADERR_CURL_SETOPT_FAILURE;
-			goto end;
-		}
-	#endif
+	} else if (curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle_global) != CURLE_OK) {
+		err = KADERR_CURL_SETOPT_FAILURE;
+		goto end;
+	}
 
 	if (curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error_message) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
@@ -2927,6 +2921,8 @@ int kad_main(int argc, argv_t** argv) {
 			}
 
 			strcpy(cacert, argument->value);
+		} else if (strcmp(argument->key, "k") == 0 || strcmp(argument->key, "insecure") == 0) {
+			ssl_verify = 0;
 		} else if (strcmp(argument->key, "v") == 0 || strcmp(argument->key, "version") == 0) {
 			argparse_free(&argparse);
 			
@@ -3022,17 +3018,17 @@ int kad_main(int argc, argv_t** argv) {
 	}
 	
 	loglevel_set(level);
-	
-	#if !defined(KAD_DISABLE_SSL_VERIFY)
+
+	if (ssl_verify) {
 		err = load_ssl_certificates(cacert);
-		
+
 		if (err != KADERR_SUCCESS) {
 			loggln(LOG_ERROR, "[error] could not load CA bundle: %s", strkaderr(err));
-			
+
 			return err;
 		}
-	#endif
-	
+	}
+
 	fd = socket(AF_INET, SOCK_STREAM, 0);
 	
 	if (fd == -1) {

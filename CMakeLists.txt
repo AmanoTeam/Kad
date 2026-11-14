@@ -10,7 +10,6 @@ project(
 
 option(KAD_LTO "Turn on compiler link-time optimizations" OFF)
 option(KAD_UNICODE "Enable Unicode support for Windows builds" ON)
-option(KAD_SSL_VERIFY "Enable SSL certificate verification in libcurl" ON)
 option(KAD_ASAN "Build with AddressSanitizer" OFF)
 option(KAD_PROFILE "Build with gprof instrumentation (-pg)" OFF)
 option(KAD_LIBRARY "Build the project as a shared library" OFF)
@@ -707,14 +706,6 @@ elseif (KAD_STATIC AND NOT (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 		kad
 		PRIVATE
 		-static-libstdc++ -static-libgcc
-	)
-endif()
-
-if (NOT KAD_SSL_VERIFY)
-	target_compile_definitions(
-		kad
-		PRIVATE
-		KAD_DISABLE_SSL_VERIFY
 	)
 endif()
 
