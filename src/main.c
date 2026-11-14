@@ -888,6 +888,10 @@ static char dns_servers[512] = {0};
 static int retry_limit = KAD_RETRY_MIN;
 
 #if !defined(KAD_DISABLE_SSL_VERIFY)
+static int ssl_verify = 1;
+#endif
+
+#if !defined(KAD_DISABLE_SSL_VERIFY)
 static int load_ssl_certificates(const char* const cacert) {
 	/*
 	Locates the CA certificate bundle file for cURL to use.
@@ -1511,35 +1515,40 @@ static int client_start_transfer(transferdata_t* const data) {
 	}
 
 	#if defined(KAD_DISABLE_SSL_VERIFY)
-		value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-
-		if (value != CURLE_OK) {
-			err = KADERR_CURL_SETOPT_FAILURE;
-			goto end;
-		}
-
-		value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-		if (value != CURLE_OK) {
-			err = KADERR_CURL_SETOPT_FAILURE;
-			goto end;
-		}
-
-		value = curl_easy_setopt(curl, CURLOPT_DOH_SSL_VERIFYPEER, 0L);
-
-		if (value != CURLE_OK) {
-			err = KADERR_CURL_SETOPT_FAILURE;
-			goto end;
-		}
-
-		value = curl_easy_setopt(curl, CURLOPT_DOH_SSL_VERIFYHOST, 0L);
-
-		if (value != CURLE_OK) {
-			err = KADERR_CURL_SETOPT_FAILURE;
-			goto end;
-		}
+		if (1) {
 	#else
-		if (curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle_global) != CURLE_OK) {
+		if (!ssl_verify) {
+	#endif
+			value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+
+			if (value != CURLE_OK) {
+				err = KADERR_CURL_SETOPT_FAILURE;
+				goto end;
+			}
+
+			value = curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+			if (value != CURLE_OK) {
+				err = KADERR_CURL_SETOPT_FAILURE;
+				goto end;
+			}
+
+			value = curl_easy_setopt(curl, CURLOPT_DOH_SSL_VERIFYPEER, 0L);
+
+			if (value != CURLE_OK) {
+				err = KADERR_CURL_SETOPT_FAILURE;
+				goto end;
+			}
+
+			value = curl_easy_setopt(curl, CURLOPT_DOH_SSL_VERIFYHOST, 0L);
+
+			if (value != CURLE_OK) {
+				err = KADERR_CURL_SETOPT_FAILURE;
+				goto end;
+			}
+		}
+	#if !defined(KAD_DISABLE_SSL_VERIFY)
+		else if (curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle_global) != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
 			goto end;
 		}
@@ -2927,6 +2936,10 @@ int kad_main(int argc, argv_t** argv) {
 			}
 
 			strcpy(cacert, argument->value);
+		} else if (strcmp(argument->key, "k") == 0 || strcmp(argument->key, "insecure") == 0) {
+			#if !defined(KAD_DISABLE_SSL_VERIFY)
+				ssl_verify = 0;
+			#endif
 		} else if (strcmp(argument->key, "v") == 0 || strcmp(argument->key, "version") == 0) {
 			argparse_free(&argparse);
 			
@@ -3024,12 +3037,14 @@ int kad_main(int argc, argv_t** argv) {
 	loglevel_set(level);
 	
 	#if !defined(KAD_DISABLE_SSL_VERIFY)
-		err = load_ssl_certificates(cacert);
-		
-		if (err != KADERR_SUCCESS) {
-			loggln(LOG_ERROR, "[error] could not load CA bundle: %s", strkaderr(err));
-			
-			return err;
+		if (ssl_verify) {
+			err = load_ssl_certificates(cacert);
+
+			if (err != KADERR_SUCCESS) {
+				loggln(LOG_ERROR, "[error] could not load CA bundle: %s", strkaderr(err));
+
+				return err;
+			}
 		}
 	#endif
 	

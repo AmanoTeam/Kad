@@ -29,6 +29,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+	"-k",
+	"--insecure",
+	action = "store_true",
+	help = "Disable SSL certificate verification."
+)
+
+parser.add_argument(
 	"--host",
 	metavar = "HOST",
 	required = False,

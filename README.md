@@ -31,13 +31,14 @@ Available options:
 
 ```
 $ kad --help
-usage: kad [-h] [-v] [--host HOST] [--port PORT] [--target TARGET] [--platform PLATFORM] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE] [--dns-servers LIST] [--retry COUNT]
+usage: kad [-h] [-v] [-k] [--host HOST] [--port PORT] [--target TARGET] [--platform PLATFORM] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE] [--dns-servers LIST] [--retry COUNT]
 
 A simple HTTP proxy server that forwards all requests through curl-impersonate.
 
 options:
   -h, --help           Display this help text and exit.
   -v, --version        Display the Kad version and exit.
+  -k, --insecure       Disable SSL certificate verification.
   --host HOST          Bind socket to this host. [default: 127.0.0.1]
   --port PORT          Bind socket to this port. [default: 4000]
   --target TARGET      Impersonate this target. [default: chrome116]
