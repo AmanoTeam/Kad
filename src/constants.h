@@ -9,6 +9,8 @@ static const char CRLFCRLF[] = "\r\n\r\n";
 
 static const char HTTP_SCHEME[] = "http";
 static const char HTTPS_SCHEME[] = "https";
+static const char WS_SCHEME[] = "ws";
+static const char WSS_SCHEME[] = "wss";
 
 static const char SLASH[] = "/";
 static const char COLON[] = ":";

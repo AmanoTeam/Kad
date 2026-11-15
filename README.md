@@ -147,3 +147,10 @@ public class Main {
 
 > [!IMPORTANT]
 > Kad uses a self-signed [certificate](./tools/certificates/kad.crt) to decrypt requests made to HTTPS websites, so your HTTP client will refuse sending requests unless you disable SSL verification.
+
+## WebSocket
+
+WebSocket connections (`ws://` and `wss://`) are transparently supported: once the
+handshake request passes through Kad, the raw frames of both sides are relayed
+as they are, without any interpretation. Note that the impersonated handshake
+request may not always match the fingerprints a browser would produce.

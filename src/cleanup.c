@@ -62,6 +62,7 @@ void transferdata_close(transferdata_t* const data) {
 	buffer_free(&data->buffer);
 	buffer_free(&data->in);
 	buffer_free(&data->out);
+	buffer_free(&data->ws_pending);
 
 	free(data->hostname);
 

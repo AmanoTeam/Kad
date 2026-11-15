@@ -243,9 +243,17 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 
 		/* the connection closes after each response, so the client must not
 		   pool it and reuse it while it is already gone; the upstream's
-		   Connection header is stripped below, so it is set explicitly here */
+		   Connection header is stripped below, so it is set explicitly here.
+		   A websocket upgrade keeps the connection alive instead */
 
-		if (client_write(data, "Connection: close\r\n", 19) != 0) {
+		if (response.status == SWITCHING_PROTOCOLS) {
+			if (client_write(data, "Connection: upgrade\r\n", 21) != 0) {
+				status = -1;
+				goto end;
+			}
+
+			data->flags |= TD_WS_ESTABLISHED;
+		} else if (client_write(data, "Connection: close\r\n", 19) != 0) {
 			status = -1;
 			goto end;
 		}

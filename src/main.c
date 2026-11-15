@@ -1009,6 +1009,11 @@ static int load_ssl_certificates(const char* const cacert) {
 #define CLIENT_OUTPUT_MAX_SIZE (1024 * 1024)
 #define CLIENT_OUTPUT_MIN_SIZE (256 * 1024)
 
+/* how much data may be buffered for a client while the websocket relay
+   cannot push it to the upstream connection yet */
+
+#define WS_BUFFER_MAX_SIZE CLIENT_OUTPUT_MAX_SIZE
+
 /* how long to wait for the client to finish sending before closing after
    the answer was already delivered (lingering close) */
 
@@ -1017,13 +1022,25 @@ static int load_ssl_certificates(const char* const cacert) {
 struct curl_socket_context {
 	struct event* event;
 	curl_socket_t sockfd;
+	int events;
+	transferdata_t* td;
 };
 
 typedef struct curl_socket_context curl_socket_context_t;
 
 static void client_event_cb(evutil_socket_t fd, short events, void* arg);
 
+static void curl_socket_event_cb(evutil_socket_t fd, short events, void* arg);
+
 static void curl_check_completed(void);
+
+static void ws_context_update(transferdata_t* const data);
+
+static int ws_pump_recv(transferdata_t* const data);
+
+static int ws_pump_send(transferdata_t* const data);
+
+static void ws_kill(transferdata_t* const data);
 
 static int socket_nonblocking(const int fd) {
 
@@ -1137,10 +1154,26 @@ static int socket_shutdown_write(const int fd) {
 static int curl_depth = 0;
 
 static void client_destroy(transferdata_t* const data) {
+
+	/*
+	A websocket transfer keeps its easy handle on the multi stack and owns
+	an adopted socket context; both must be released before the transfer
+	data itself goes away, otherwise cURL keeps tracking a dangling handle
+	and the context keeps pointing at freed memory.
+	*/
+
+	if ((data->flags & TD_WEBSOCKET) != 0 && (data->curl != NULL || data->ws_context != NULL)) {
+		ws_kill(data);
+	}
+
 	transferdata_close(data);
 }
 
 static void client_kill(transferdata_t* const data) {
+
+	if ((data->flags & TD_WEBSOCKET) != 0 && (data->curl != NULL || data->ws_context != NULL)) {
+		ws_kill(data);
+	}
 
 	if (data->curl != NULL) {
 		curl_multi_remove_handle(curl_multi, data->curl);
@@ -1167,7 +1200,16 @@ static void client_event_update(transferdata_t* const data) {
 			events |= EV_READ;
 		}
 	} else {
-		if ((data->flags & TD_EOF) == 0) {
+		int reads = (data->flags & TD_EOF) == 0;
+
+		if (data->state == CLIENT_STATE_WEBSOCKET) {
+			/* the relay stops pulling from the client while the upstream
+			   connection cannot accept more data yet */
+
+			reads = reads && (data->flags & TD_WS_PAUSE_UP) == 0 && data->ws_pending.slength < WS_BUFFER_MAX_SIZE;
+		}
+
+		if (reads) {
 			events |= EV_READ;
 		}
 
@@ -1310,15 +1352,221 @@ int client_write(transferdata_t* const data, const char* const buffer, const siz
 	}
 
 	/* apply backpressure once too much response data is waiting to be
-	   sent to a slow client */
+	   sent to a slow client; websocket relays handle this themselves, as
+	   cURL's pause API does not apply to their connect-only transfers */
 
-	if (data->curl != NULL && (data->flags & TD_PAUSE_DOWN) == 0 && data->out.slength >= CLIENT_OUTPUT_MAX_SIZE) {
+	if (data->curl != NULL && data->state != CLIENT_STATE_WEBSOCKET && (data->flags & TD_PAUSE_DOWN) == 0 && data->out.slength >= CLIENT_OUTPUT_MAX_SIZE) {
 		if (curl_easy_pause(data->curl, CURLPAUSE_RECV) == CURLE_OK) {
 			data->flags |= TD_PAUSE_DOWN;
 		}
 	}
 
 	client_event_update(data);
+
+	return 0;
+
+}
+
+static void ws_kill(transferdata_t* const data) {
+	/*
+	Ends the upstream websocket connection; cURL must not keep the easy
+	handle on the multi stack past this point, as it owns the connection
+	and destroys it once the handle is removed. The watcher of the socket
+	is freed along with it, as the relay phase owns it once the transfer
+	of the connection ended.
+	*/
+
+	curl_socket_context_t* const context = data->ws_context;
+
+	data->ws_context = NULL;
+
+	if (context != NULL) {
+		context->td = NULL;
+
+		curl_multi_assign(curl_multi, context->sockfd, NULL);
+
+		event_del(context->event);
+		event_free(context->event);
+
+		free(context);
+	}
+
+	if (data->curl != NULL) {
+		curl_multi_remove_handle(curl_multi, data->curl);
+		curl_easy_cleanup(data->curl);
+
+		data->curl = NULL;
+	}
+
+	buffer_free(&data->ws_pending);
+
+}
+
+static void ws_finish(transferdata_t* const data) {
+	/*
+	Called once the upstream websocket connection ended; delivers whatever
+	pending response bytes are left to the client, then closes the relay.
+	*/
+
+	ws_kill(data);
+
+	loggln(LOG_INFO, "[info] websocket closed");
+
+	if (curl_depth > 0) {
+		/* nested inside a callback of this client; closing has to wait
+		   until the nesting unwinds */
+
+		data->flags |= TD_DESTROY;
+
+		return;
+	}
+
+	data->state = CLIENT_STATE_CLOSING;
+
+	if (data->out.slength > 0) {
+		/* flush the pending response bytes before closing */
+
+		client_event_update(data);
+	} else {
+		client_linger_close(data);
+	}
+
+}
+
+static void ws_context_update(transferdata_t* const data) {
+	/*
+	Arms the watcher of the upstream websocket socket with the events the
+	relay is currently interested in: reading when frames may be pumped to
+	the client, and writing while bytes wait to be sent upstream.
+	*/
+
+	curl_socket_context_t* const context = data->ws_context;
+
+	short events = EV_PERSIST;
+
+	int armed = 0;
+
+	if (context == NULL) {
+		return;
+	}
+
+	if ((data->flags & TD_WS_PAUSE_DOWN) == 0) {
+		events |= EV_READ;
+	}
+
+	if (data->ws_pending.slength > 0) {
+		events |= EV_WRITE;
+	}
+
+	armed = (int) events;
+
+	if (context->events == armed) {
+		return;
+	}
+
+	event_del(context->event);
+	event_assign(context->event, event_base, context->sockfd, events, curl_socket_event_cb, context);
+	event_add(context->event, NULL);
+
+	context->events = armed;
+
+}
+
+static int ws_pump_send(transferdata_t* const data) {
+	/*
+	Pushes the bytes the client sent through the upstream websocket
+	connection.
+
+	Returns (0) on success, or (-1) when the relay ended.
+	*/
+
+	size_t sent = 0;
+
+	CURLcode code = CURLE_OK;
+
+	while (data->ws_pending.slength > 0) {
+		sent = 0;
+
+		code = curl_easy_send(data->curl, data->ws_pending.s, data->ws_pending.slength, &sent);
+
+		if (code == CURLE_AGAIN) {
+			/* the upstream socket cannot accept more data yet; wait for
+			   it to become writable */
+
+			data->flags |= TD_WS_PAUSE_UP;
+
+			break;
+		}
+
+		if (code != CURLE_OK || sent == 0) {
+			ws_finish(data);
+
+			return -1;
+		}
+
+		if (sent < data->ws_pending.slength) {
+			memmove(data->ws_pending.s, data->ws_pending.s + sent, data->ws_pending.slength - sent);
+		}
+
+		data->ws_pending.slength -= sent;
+	}
+
+	if (data->ws_pending.slength == 0) {
+		data->flags &= ~TD_WS_PAUSE_UP;
+	}
+
+	ws_context_update(data);
+
+	return 0;
+
+}
+
+static int ws_pump_recv(transferdata_t* const data) {
+	/*
+	Pulls bytes from the upstream websocket connection and writes them to
+	the client.
+
+	Returns (0) on success, or (-1) when the relay ended.
+	*/
+
+	char chunk[MAX_CHUNK_SIZE];
+
+	size_t received = 0;
+
+	CURLcode code = CURLE_OK;
+
+	while ((data->flags & TD_WS_PAUSE_DOWN) == 0) {
+		if (data->out.slength >= CLIENT_OUTPUT_MAX_SIZE) {
+			/* the client cannot catch up with the frames being relayed;
+			   stop reading until it drained the pending bytes */
+
+			data->flags |= TD_WS_PAUSE_DOWN;
+
+			break;
+		}
+
+		received = 0;
+
+		code = curl_easy_recv(data->curl, chunk, sizeof(chunk), &received);
+
+		if (code == CURLE_AGAIN) {
+			break;
+		}
+
+		if (code != CURLE_OK || received == 0) {
+			ws_finish(data);
+
+			return -1;
+		}
+
+		if (client_write(data, chunk, received) != 0) {
+			client_kill(data);
+
+			return -1;
+		}
+	}
+
+	ws_context_update(data);
 
 	return 0;
 
@@ -1699,6 +1947,22 @@ static int client_start_transfer(transferdata_t* const data) {
 		goto end;
 	}
 
+	if ((data->flags & TD_WEBSOCKET) != 0) {
+		/* make cURL perform the websocket handshake and hand the raw
+		   connection over afterwards; the impersonation of the handshake
+		   request headers is kept, as everything set above still applies */
+
+		if (curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L) != CURLE_OK) {
+			err = KADERR_CURL_SETOPT_FAILURE;
+			goto end;
+		}
+
+		if (curl_easy_setopt(curl, CURLOPT_WS_OPTIONS, CURLWS_RAW_MODE) != CURLE_OK) {
+			err = KADERR_CURL_SETOPT_FAILURE;
+			goto end;
+		}
+	}
+
 	if (data->request.method != HEAD) {
 		if (curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback) != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
@@ -1822,6 +2086,8 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 	char* s = NULL;
 	char* uri = NULL;
 
+	const http_header_t* header = NULL;
+
 	int code = 0;
 
 	size_t parse_size = 0;
@@ -1889,6 +2155,19 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 
 	buffer_free(&data->in);
 
+	/* a websocket upgrade request only makes sense for HTTP/1.1 GETs
+	   without a body */
+
+	if (data->request.method == GET && data->request.version == HTTP11) {
+		header = http_headers_get(&data->request.headers, "Upgrade");
+
+		if (header != NULL && header->value != NULL && strcasecmp(header->value, "websocket") == 0 &&
+			http_headers_get(&data->request.headers, "Content-Length") == NULL &&
+			http_headers_get(&data->request.headers, "Transfer-Encoding") == NULL) {
+			data->flags |= TD_WEBSOCKET;
+		}
+	}
+
 	if (data->request.method == CONNECT && (data->flags & TD_SECURE) == 0) {
 		/* the client wants to tunnel a secure connection through the
 		   proxy; accept the tunnel and start the TLS handshake */
@@ -1924,7 +2203,9 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 		/* the request was tunneled through a TLS connection; rebuild the
 		   absolute HTTPS url from the tunnel target and the request path */
 
-		uri = malloc(strlen(HTTPS_SCHEME) + strlen(SCHEME_SEPARATOR) + strlen(data->hostname) + strlen(data->request.uri) + 1);
+		const char* scheme = ((data->flags & TD_WEBSOCKET) != 0) ? WSS_SCHEME : HTTPS_SCHEME;
+
+		uri = malloc(strlen(scheme) + strlen(SCHEME_SEPARATOR) + strlen(data->hostname) + strlen(data->request.uri) + 1);
 
 		if (uri == NULL) {
 			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
@@ -1934,7 +2215,7 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 			return -1;
 		}
 
-		strcpy(uri, HTTPS_SCHEME);
+		strcpy(uri, scheme);
 		strcat(uri, SCHEME_SEPARATOR);
 		strcat(uri, data->hostname);
 		strcat(uri, data->request.uri);
@@ -1944,6 +2225,43 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 
 		free(data->request.uri);
 		data->request.uri = uri;
+	} else if ((data->flags & TD_WEBSOCKET) != 0) {
+		/* the request was sent to the proxy directly; rewrite its http
+		   scheme into the websocket one */
+
+		const char* separator = strstr(data->request.uri, SCHEME_SEPARATOR);
+		const char* scheme = NULL;
+
+		if (separator != NULL) {
+			size_t scheme_size = (size_t) (separator - data->request.uri);
+
+			if (scheme_size == strlen(HTTP_SCHEME) && strncasecmp(data->request.uri, HTTP_SCHEME, scheme_size) == 0) {
+				scheme = WS_SCHEME;
+			} else if (scheme_size == strlen(HTTPS_SCHEME) && strncasecmp(data->request.uri, HTTPS_SCHEME, scheme_size) == 0) {
+				scheme = WSS_SCHEME;
+			}
+		}
+
+		if (scheme != NULL) {
+			const char* target = separator + strlen(SCHEME_SEPARATOR);
+
+			uri = malloc(strlen(scheme) + strlen(SCHEME_SEPARATOR) + strlen(target) + 1);
+
+			if (uri == NULL) {
+				loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+				client_kill(data);
+
+				return -1;
+			}
+
+			strcpy(uri, scheme);
+			strcat(uri, SCHEME_SEPARATOR);
+			strcat(uri, target);
+
+			free(data->request.uri);
+			data->request.uri = uri;
+		}
 	}
 
 	loggln(LOG_INFO, "[info] client request to %s", data->request.uri);
@@ -2029,6 +2347,17 @@ static int client_read(transferdata_t* const data) {
 		if (size == -2) {
 			/* the client orderly closed the connection */
 
+			if (data->state == CLIENT_STATE_WEBSOCKET) {
+				/* the client is gone; the upstream connection cannot
+				   outlive the relay, so end it right away */
+
+				ws_kill(data);
+
+				client_destroy(data);
+
+				return -1;
+			}
+
 			if (data->state == CLIENT_STATE_REQUEST || (data->state == CLIENT_STATE_FORWARD && data->remaining > 0)) {
 				loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SOCKET_RECV_FAILURE));
 
@@ -2059,6 +2388,47 @@ static int client_read(transferdata_t* const data) {
 		if (data->state == CLIENT_STATE_REQUEST) {
 			if (client_request_data(data, chunk, (size_t) size) != 0) {
 				return -1;
+			}
+
+			readable = 1;
+
+			continue;
+		}
+
+		/* relay what the client sends through the websocket connection;
+		   anything beyond the amount the upstream connection can accept
+		   is buffered, and once the buffer fills up the rest is left in
+		   the socket, whose backpressure throttles the client */
+
+		if (data->state == CLIENT_STATE_WEBSOCKET) {
+			if (data->ws_pending.slength < WS_BUFFER_MAX_SIZE) {
+				s = realloc(data->ws_pending.s, data->ws_pending.slength + size);
+
+				if (s == NULL) {
+					loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+					client_kill(data);
+
+					return -1;
+				}
+
+				memcpy(s + data->ws_pending.slength, chunk, size);
+
+				data->ws_pending.s = s;
+				data->ws_pending.slength += size;
+
+				if (ws_pump_send(data) != 0) {
+					return -1;
+				}
+			}
+
+			client_event_update(data);
+
+			if (data->ws_pending.slength >= WS_BUFFER_MAX_SIZE || (data->flags & TD_WS_PAUSE_UP) != 0) {
+				/* the upstream connection cannot accept more data yet;
+				   wait until it becomes writable again */
+
+				break;
 			}
 
 			readable = 1;
@@ -2170,7 +2540,15 @@ static void client_event_cb(evutil_socket_t fd, short events, void* arg) {
 		/* resume the download once the client caught up with the data that
 		   was previously buffered */
 
-		if ((data->flags & TD_PAUSE_DOWN) != 0 && data->curl != NULL && data->out.slength < CLIENT_OUTPUT_MIN_SIZE) {
+		if (data->state == CLIENT_STATE_WEBSOCKET) {
+			if ((data->flags & TD_WS_PAUSE_DOWN) != 0 && data->out.slength < CLIENT_OUTPUT_MIN_SIZE) {
+				data->flags &= ~TD_WS_PAUSE_DOWN;
+
+				if (ws_pump_recv(data) != 0) {
+					dead = 1;
+				}
+			}
+		} else if ((data->flags & TD_PAUSE_DOWN) != 0 && data->curl != NULL && data->out.slength < CLIENT_OUTPUT_MIN_SIZE) {
 			curl_easy_pause(data->curl, CURLPAUSE_RECV_CONT);
 
 			data->flags &= ~TD_PAUSE_DOWN;
@@ -2193,10 +2571,36 @@ static void curl_socket_event_cb(evutil_socket_t fd, short events, void* arg) {
 
 	int running = 0;
 	int flags = 0;
+	int dead = 0;
 
 	CURLMcode code = CURLM_OK;
 
 	(void) fd;
+
+	if (context->td != NULL && context->td->state == CLIENT_STATE_WEBSOCKET) {
+		/* the relay phase of a websocket connection drives the upstream
+		   socket itself, as its transfer already completed */
+
+		if ((events & EV_WRITE) != 0) {
+			if (ws_pump_send(context->td) != 0) {
+				dead = 1;
+			}
+		}
+
+		if (!dead && (events & EV_READ) != 0) {
+			if (ws_pump_recv(context->td) != 0) {
+				dead = 1;
+			}
+		}
+
+		if (!dead) {
+			ws_context_update(context->td);
+
+			client_event_update(context->td);
+		}
+
+		return;
+	}
 
 	if ((events & EV_READ) != 0) {
 		flags |= CURL_CSELECT_IN;
@@ -2227,6 +2631,8 @@ static curl_socket_context_t* curl_socket_context_new(const curl_socket_t sockfd
 	}
 
 	context->sockfd = sockfd;
+	context->events = 0;
+	context->td = NULL;
 	context->event = event_new(event_base, sockfd, 0, curl_socket_event_cb, context);
 
 	if (context->event == NULL) {
@@ -2243,9 +2649,10 @@ static int curl_handle_socket(CURL* easy, curl_socket_t s, int action, void* use
 
 	curl_socket_context_t* context = NULL;
 
+	transferdata_t* data = NULL;
+
 	short events = 0;
 
-	(void) easy;
 	(void) userp;
 
 	switch (action) {
@@ -2259,6 +2666,22 @@ static int curl_handle_socket(CURL* easy, curl_socket_t s, int action, void* use
 			}
 
 			curl_multi_assign(curl_multi, s, (void*) context);
+
+			/* remember which websocket transfer the upstream socket belongs
+			   to, so its relay phase can drive it once the transfer ends */
+
+			if (curl_easy_getinfo(easy, CURLINFO_PRIVATE, &data) == CURLE_OK && data != NULL && (data->flags & TD_WEBSOCKET) != 0) {
+				context->td = data;
+
+				data->ws_context = context;
+			}
+
+			if (data != NULL && data->state == CLIENT_STATE_WEBSOCKET) {
+				/* the relay phase already manages the watcher of this
+				   socket; keep it as is */
+
+				break;
+			}
 
 			if (action != CURL_POLL_IN) {
 				events |= EV_WRITE;
@@ -2274,14 +2697,43 @@ static int curl_handle_socket(CURL* easy, curl_socket_t s, int action, void* use
 			event_assign(context->event, event_base, context->sockfd, events, curl_socket_event_cb, context);
 			event_add(context->event, NULL);
 
+			context->events = (int) events;
+
 			break;
 		}
 		case CURL_POLL_REMOVE: {
 			if (socketp != NULL) {
 				context = (curl_socket_context_t*) socketp;
 
+				/* a websocket transfer whose handshake just succeeded stays
+				   on the multi stack for its relay phase; cURL stops tracking
+				   its socket when the transfer ends, and the context outlives
+				   that tracking, as the relay drives the socket directly */
+
+				if (context->td != NULL && context->td->ws_context == context &&
+					(context->td->flags & TD_WS_ESTABLISHED) != 0 &&
+					context->td->state != CLIENT_STATE_WEBSOCKET) {
+					event_del(context->event);
+
+					context->events = 0;
+
+					curl_multi_assign(curl_multi, s, NULL);
+
+					break;
+				}
+
 				event_del(context->event);
 				event_free(context->event);
+
+				/* the transfer data may still reference the context being
+				   released; cURL stops tracking failed handshake sockets
+				   before the transfer data itself goes away */
+
+				if (context->td != NULL && context->td->ws_context == context) {
+					context->td->ws_context = NULL;
+
+					context->td = NULL;
+				}
 
 				free(context);
 
@@ -2431,6 +2883,59 @@ static void curl_check_completed(void) {
 
 			curl_multi_remove_handle(curl_multi, msg->easy_handle);
 			curl_easy_cleanup(msg->easy_handle);
+
+			continue;
+		}
+
+		if ((data->flags & TD_WEBSOCKET) != 0 && (data->flags & TD_WS_ESTABLISHED) != 0 && msg->data.result == CURLE_OK) {
+			/* the websocket handshake succeeded; the relay phase starts
+			   now. The handle must stay on the multi stack, as removing a
+			   connect-only handle would close its connection */
+
+			#if defined(KAD_CAPTURE)
+				capture_end(&data->capture, msg->easy_handle);
+			#endif
+
+			if (data->ws_context == NULL) {
+				/* the socket of the upstream connection was never seen by
+				   the socket callback; take it from the transfer info */
+
+				curl_socket_t sockfd = CURL_SOCKET_BAD;
+
+				curl_easy_getinfo(msg->easy_handle, CURLINFO_ACTIVESOCKET, &sockfd);
+
+				data->ws_context = (sockfd == CURL_SOCKET_BAD) ? NULL : curl_socket_context_new(sockfd);
+
+				if (data->ws_context == NULL) {
+					loggln(LOG_ERROR, "[error] %s", strkaderr((sockfd == CURL_SOCKET_BAD) ? KADERR_CURL_GETINFO_FAILURE : KADERR_MEMORY_ALLOCATE_FAILURE));
+
+					curl_multi_remove_handle(curl_multi, msg->easy_handle);
+					curl_easy_cleanup(msg->easy_handle);
+
+					data->curl = NULL;
+
+					client_destroy(data);
+
+					continue;
+				}
+
+				data->ws_context->td = data;
+
+				curl_multi_assign(curl_multi, sockfd, (void*) data->ws_context);
+			}
+
+			data->state = CLIENT_STATE_WEBSOCKET;
+
+			loggln(LOG_INFO, "[info] websocket established");
+
+			ws_context_update(data);
+
+			client_event_update(data);
+
+			/* the response bytes that followed the 101 may already be
+			   buffered in the upstream connection; pump them now */
+
+			ws_pump_recv(data);
 
 			continue;
 		}

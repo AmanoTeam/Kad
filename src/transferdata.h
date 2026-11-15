@@ -16,12 +16,15 @@
 
 struct event;
 
+struct curl_socket_context;
+
 enum ClientState {
 	CLIENT_STATE_NONE = 0,
 	CLIENT_STATE_REQUEST = 1,
 	CLIENT_STATE_HANDSHAKE = 2,
 	CLIENT_STATE_FORWARD = 3,
-	CLIENT_STATE_CLOSING = 4
+	CLIENT_STATE_CLOSING = 4,
+	CLIENT_STATE_WEBSOCKET = 5
 };
 
 typedef enum ClientState client_state_t;
@@ -32,6 +35,10 @@ typedef enum ClientState client_state_t;
 #define TD_PAUSE_UP (1 << 3)
 #define TD_PAUSE_DOWN (1 << 4)
 #define TD_DESTROY (1 << 5)
+#define TD_WEBSOCKET (1 << 6)
+#define TD_WS_ESTABLISHED (1 << 7)
+#define TD_WS_PAUSE_UP (1 << 8)
+#define TD_WS_PAUSE_DOWN (1 << 9)
 
 struct transferdata {
 	ssl_context_t context;
@@ -53,7 +60,9 @@ struct transferdata {
 	buffer_t buffer;
 	buffer_t in;
 	buffer_t out;
+	buffer_t ws_pending;
 	struct event* event;
+	struct curl_socket_context* ws_context;
 	char* hostname;
 };
 
