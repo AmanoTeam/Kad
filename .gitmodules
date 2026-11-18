@@ -46,3 +46,6 @@
 [submodule "submodules/whereami"]
 	path = submodules/whereami
 	url = https://github.com/gpakosz/whereami.git
+[submodule "submodules/jemalloc"]
+	path = submodules/jemalloc
+	url = https://github.com/jemalloc/jemalloc.git

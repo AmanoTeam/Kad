@@ -63,6 +63,7 @@ set(ZSTD_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/zstd")
 set(JANSSON_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/jansson")
 set(LIBEVENT_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/libevent")
 set(WHEREAMI_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/whereami")
+set(JEMALLOC_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/jemalloc")
 
 set(
 	INCLUDE_DIRECTORIES
@@ -102,6 +103,10 @@ set(
 
 if (KAD_CAPTURE)
 	list(APPEND KAD_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/capture.c")
+endif()
+
+if (NOT WIN32 AND NOT KAD_LIBRARY)
+	list(APPEND KAD_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/strdupshim.c")
 endif()
 
 
@@ -900,6 +905,120 @@ target_link_libraries(
 	PRIVATE
 	"${UNBOUND_LIBRARY}"
 )
+
+if (NOT WIN32 AND NOT KAD_LIBRARY)
+	set(JEMALLOC_BUILD_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/jemalloc-build")
+
+	execute_process(
+		COMMAND "${CMAKE_C_COMPILER}" -dumpmachine
+		OUTPUT_VARIABLE JEMALLOC_HOST_TRIPLET
+		OUTPUT_STRIP_TRAILING_WHITESPACE
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+
+	if (CMAKE_SYSTEM_NAME STREQUAL "Android")
+		if (ANDROID_ABI STREQUAL "armeabi-v7a")
+			set(JEMALLOC_HOST_TRIPLET "arm-linux-androideabi")
+		elseif (ANDROID_ABI STREQUAL "x86")
+			set(JEMALLOC_HOST_TRIPLET "i686-linux-android")
+		elseif (ANDROID_ABI STREQUAL "x86_64")
+			set(JEMALLOC_HOST_TRIPLET "x86_64-linux-android")
+		else()
+			set(JEMALLOC_HOST_TRIPLET "aarch64-linux-android")
+		endif()
+	endif()
+
+	if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+		set(JEMALLOC_BUILD_TRIPLET "${CMAKE_HOST_SYSTEM_PROCESSOR}-pc-linux-gnu")
+	elseif (CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+		set(JEMALLOC_BUILD_TRIPLET "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-darwin")
+	else()
+		set(JEMALLOC_BUILD_TRIPLET "${CMAKE_HOST_SYSTEM_PROCESSOR}-unknown-${CMAKE_HOST_SYSTEM_NAME}")
+	endif()
+
+	set(
+		JEMALLOC_CONFIGURE_ENV
+		"CC=${CMAKE_C_COMPILER}"
+		"CFLAGS=${CMAKE_C_FLAGS} -O2 -fPIC"
+	)
+
+	file(MAKE_DIRECTORY "${JEMALLOC_BUILD_DIRECTORY}")
+
+	add_custom_command(
+		OUTPUT "${JEMALLOC_SOURCE_DIRECTORY}/configure"
+
+		COMMAND autoconf
+
+		WORKING_DIRECTORY "${JEMALLOC_SOURCE_DIRECTORY}"
+
+		COMMENT "-- Generating jemalloc configure"
+
+		VERBATIM
+	)
+
+	set(JEMALLOC_CONFIGURE_FLAGS
+		--host=${JEMALLOC_HOST_TRIPLET}
+		--build=${JEMALLOC_BUILD_TRIPLET}
+		--with-jemalloc-prefix=
+		--enable-static
+		--disable-shared
+	)
+
+	if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+		set(JEMALLOC_CONFIGURE_FLAGS ${JEMALLOC_CONFIGURE_FLAGS} --with-lg-page=14)
+	endif()
+
+	add_custom_command(
+		OUTPUT "${JEMALLOC_BUILD_DIRECTORY}/Makefile"
+
+		COMMAND "${CMAKE_COMMAND}" -E make_directory
+			"${JEMALLOC_BUILD_DIRECTORY}"
+
+		COMMAND
+			"${CMAKE_COMMAND}" -E env
+			${JEMALLOC_CONFIGURE_ENV}
+			bash "${JEMALLOC_SOURCE_DIRECTORY}/configure"
+			${JEMALLOC_CONFIGURE_FLAGS}
+
+		WORKING_DIRECTORY "${JEMALLOC_BUILD_DIRECTORY}"
+
+		DEPENDS "${JEMALLOC_SOURCE_DIRECTORY}/configure"
+
+		COMMENT "-- Configuring jemalloc"
+
+		VERBATIM
+	)
+
+	set(JEMALLOC_LIBRARY "${JEMALLOC_BUILD_DIRECTORY}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}jemalloc${CMAKE_STATIC_LIBRARY_SUFFIX}")
+
+	add_custom_command(
+		OUTPUT "${JEMALLOC_LIBRARY}"
+
+		COMMAND make
+
+		WORKING_DIRECTORY "${JEMALLOC_BUILD_DIRECTORY}"
+
+		DEPENDS "${JEMALLOC_BUILD_DIRECTORY}/Makefile"
+
+		COMMENT "-- Building jemalloc"
+
+		VERBATIM
+	)
+
+	add_custom_target(
+		jemalloc
+		ALL
+		DEPENDS "${JEMALLOC_LIBRARY}"
+	)
+
+	add_dependencies(kad jemalloc)
+
+	target_link_libraries(
+		kad
+		PRIVATE
+		"${JEMALLOC_LIBRARY}"
+	)
+endif()
 
 if (WIN32)
 	target_compile_definitions(
