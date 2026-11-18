@@ -820,7 +820,7 @@ target_link_libraries(
 	"${UNBOUND_LIBRARY}"
 )
 
-if (NOT WIN32 AND NOT KAD_LIBRARY)
+if (NOT WIN32)
 	set(JEMALLOC_BUILD_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/jemalloc-build")
 
 	execute_process(
