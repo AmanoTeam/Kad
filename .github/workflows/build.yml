@@ -175,7 +175,6 @@ jobs:
         cmake \
             -DCMAKE_BUILD_TYPE='Release' \
             -DKAD_LTO='ON' \
-            -DKAD_STATIC='ON' \
             -DKAD_CAPTURE='OFF' \
             -S "${PWD}" \
             -B "${PWD}/build"
