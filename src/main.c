@@ -15,7 +15,6 @@
 	#include <arpa/inet.h>
 	#include <netinet/in.h>
 	#include <netdb.h>
-	#include <fcntl.h>
 #endif
 
 #if defined(_WIN32) && defined(_UNICODE)
@@ -43,7 +42,6 @@
 #include "argparse.h"
 #include "kad.h"
 #include "logging.h"
-#include "socketclose.h"
 #include "unboundshim.h"
 
 #include "fstream.h"
@@ -865,7 +863,7 @@ static int set_impersonate_headers(CURL* curl, const int browser, const int vers
 #if !defined(KAD_BUILD_SHARED)
 static void sigint_handler(void) {
 	
-	socket_close(fd);
+	evutil_closesocket(fd);
 	exit(EXIT_SUCCESS);
 	
 }
@@ -907,7 +905,7 @@ static int load_ssl_certificates(const char* const cacert) {
 	system_error_t error = {0};
 
 	if (cacert != NULL && *cacert != '\0') {
-		ca_bundle = malloc(strlen(cacert) + 1);
+		ca_bundle = strdup(cacert);
 
 		if (ca_bundle == NULL) {
 			error = get_system_error();
@@ -916,8 +914,6 @@ static int load_ssl_certificates(const char* const cacert) {
 			err = KADERR_MEMORY_ALLOCATE_FAILURE;
 			goto end;
 		}
-
-		strcpy(ca_bundle, cacert);
 	} else {
 		app_directory = get_app_directory();
 
@@ -928,7 +924,7 @@ static int load_ssl_certificates(const char* const cacert) {
 			goto end;
 		}
 
-		ca_bundle = malloc(strlen(app_directory) + strlen(CA_CERT_FILENAME) + 1);
+		ca_bundle = curl_maprintf("%s%s", app_directory, CA_CERT_FILENAME);
 
 		if (ca_bundle == NULL) {
 			error = get_system_error();
@@ -937,9 +933,6 @@ static int load_ssl_certificates(const char* const cacert) {
 			err = KADERR_MEMORY_ALLOCATE_FAILURE;
 			goto end;
 		}
-
-		strcpy(ca_bundle, app_directory);
-		strcat(ca_bundle, CA_CERT_FILENAME);
 
 		free(app_directory);
 		app_directory = NULL;
@@ -1041,24 +1034,6 @@ static int ws_pump_recv(transferdata_t* const data);
 static int ws_pump_send(transferdata_t* const data);
 
 static void ws_kill(transferdata_t* const data);
-
-static int socket_nonblocking(const int fd) {
-
-#if defined(_WIN32)
-	unsigned long mode = 1;
-
-	return (ioctlsocket(fd, FIONBIO, &mode) == 0) ? 0 : -1;
-#else
-	const int flags = fcntl(fd, F_GETFL, 0);
-
-	if (flags == -1) {
-		return -1;
-	}
-
-	return (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0) ? 0 : -1;
-#endif
-
-}
 
 static int socket_wouldblock(void) {
 
@@ -1605,27 +1580,6 @@ static int client_kick(transferdata_t* const data) {
 
 }
 
-static int client_headers_complete(const buffer_t* const buffer) {
-
-	size_t index = 0;
-	size_t limit = 0;
-
-	if (buffer->slength < strlen(CRLFCRLF)) {
-		return 0;
-	}
-
-	limit = buffer->slength - strlen(CRLFCRLF);
-
-	for (index = 0; index <= limit; index++) {
-		if (memcmp(buffer->s + index, CRLFCRLF, strlen(CRLFCRLF)) == 0) {
-			return 1;
-		}
-	}
-
-	return 0;
-
-}
-
 static int client_start_transfer(transferdata_t* const data) {
 	/*
 	Creates a cURL easy handle for the parsed request and adds it to the
@@ -1853,16 +1807,12 @@ static int client_start_transfer(transferdata_t* const data) {
 				goto end;
 			}
 		} else {
-			item = malloc(strlen(header->key) + strlen(HEADER_SEPARATOR) + strlen(header->value) + 1);
+			item = curl_maprintf("%s%s%s", header->key, HEADER_SEPARATOR, header->value);
 
 			if (item == NULL) {
 				err = KADERR_MEMORY_ALLOCATE_FAILURE;
 				goto end;
 			}
-
-			strcpy(item, header->key);
-			strcat(item, HEADER_SEPARATOR);
-			strcat(item, header->value);
 
 			tmp = curl_slist_append(tmp, item);
 
@@ -1881,13 +1831,13 @@ static int client_start_transfer(transferdata_t* const data) {
 		for (subindex = 0; subindex < sizeof(IMPERSONATE_HEADERS) / sizeof(*IMPERSONATE_HEADERS); subindex++) {
 			name = IMPERSONATE_HEADERS[subindex];
 
-			status = (strcasecmp(header->key, name) == 0);
+			status = (evutil_ascii_strcasecmp(header->key, name) == 0);
 
 			if (!status) {
 				continue;
 			}
 
-			if (strcasecmp(header->key, "Requested-With") == 0 && strcmp(header->value, "XMLHttpRequest") == 0) {
+			if (evutil_ascii_strcasecmp(header->key, "Requested-With") == 0 && strcmp(header->value, "XMLHttpRequest") == 0) {
 				status = 0;
 			}
 
@@ -1898,16 +1848,12 @@ static int client_start_transfer(transferdata_t* const data) {
 			continue;
 		}
 
-		item = malloc(strlen(header->key) + strlen(HEADER_SEPARATOR) + strlen(header->value) + 1);
+		item = curl_maprintf("%s%s%s", header->key, HEADER_SEPARATOR, header->value);
 
 		if (item == NULL) {
 			err = KADERR_MEMORY_ALLOCATE_FAILURE;
 			goto end;
 		}
-
-		strcpy(item, header->key);
-		strcat(item, HEADER_SEPARATOR);
-		strcat(item, header->value);
 
 		tmp = curl_slist_append(data->headers, item);
 
@@ -2109,22 +2055,21 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 	data->in.slength += size;
 	data->in.s[data->in.slength] = '\0';
 
-	if (!client_headers_complete(&data->in) && data->in.slength < MAX_HTTP_HEADERS_SIZE) {
-		return 0;
-	}
-
-	/* the headers are complete, or the maximum size was exceeded; this
-	   emulates the single recv() call of the previous threaded design, so
-	   at most MAX_HTTP_HEADERS_SIZE bytes are parsed and anything beyond
+	/* at most MAX_HTTP_HEADERS_SIZE bytes are parsed and anything beyond
 	   them is request body that is kept buffered */
 
 	parse_size = (data->in.slength > MAX_HTTP_HEADERS_SIZE) ? MAX_HTTP_HEADERS_SIZE : data->in.slength;
 
-	data->request_size = parse_size;
-
 	http_request_init(&data->request);
 
 	code = http_request_parse(&data->request, data->in.s, parse_size);
+
+	if (code == KADERR_HTTP_INCOMPLETE && parse_size < (size_t) MAX_HTTP_HEADERS_SIZE) {
+		/* the headers are still incomplete; keep buffering */
+		return 0;
+	}
+
+	data->request_size = parse_size;
 
 	if (code != KADERR_SUCCESS) {
 		loggln(LOG_ERROR, "[error] %s", strkaderr(code));
@@ -2161,7 +2106,7 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 	if (data->request.method == GET && data->request.version == HTTP11) {
 		header = http_headers_get(&data->request.headers, "Upgrade");
 
-		if (header != NULL && header->value != NULL && strcasecmp(header->value, "websocket") == 0 &&
+		if (header != NULL && header->value != NULL && evutil_ascii_strcasecmp(header->value, "websocket") == 0 &&
 			http_headers_get(&data->request.headers, "Content-Length") == NULL &&
 			http_headers_get(&data->request.headers, "Transfer-Encoding") == NULL) {
 			data->flags |= TD_WEBSOCKET;
@@ -2205,7 +2150,7 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 
 		const char* scheme = ((data->flags & TD_WEBSOCKET) != 0) ? WSS_SCHEME : HTTPS_SCHEME;
 
-		uri = malloc(strlen(scheme) + strlen(SCHEME_SEPARATOR) + strlen(data->hostname) + strlen(data->request.uri) + 1);
+		uri = curl_maprintf("%s%s%s%s", scheme, SCHEME_SEPARATOR, data->hostname, data->request.uri);
 
 		if (uri == NULL) {
 			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
@@ -2214,11 +2159,6 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 
 			return -1;
 		}
-
-		strcpy(uri, scheme);
-		strcat(uri, SCHEME_SEPARATOR);
-		strcat(uri, data->hostname);
-		strcat(uri, data->request.uri);
 
 		free(data->hostname);
 		data->hostname = NULL;
@@ -2235,9 +2175,9 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 		if (separator != NULL) {
 			size_t scheme_size = (size_t) (separator - data->request.uri);
 
-			if (scheme_size == strlen(HTTP_SCHEME) && strncasecmp(data->request.uri, HTTP_SCHEME, scheme_size) == 0) {
+			if (scheme_size == strlen(HTTP_SCHEME) && evutil_ascii_strncasecmp(data->request.uri, HTTP_SCHEME, scheme_size) == 0) {
 				scheme = WS_SCHEME;
-			} else if (scheme_size == strlen(HTTPS_SCHEME) && strncasecmp(data->request.uri, HTTPS_SCHEME, scheme_size) == 0) {
+			} else if (scheme_size == strlen(HTTPS_SCHEME) && evutil_ascii_strncasecmp(data->request.uri, HTTPS_SCHEME, scheme_size) == 0) {
 				scheme = WSS_SCHEME;
 			}
 		}
@@ -2245,7 +2185,7 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 		if (scheme != NULL) {
 			const char* target = separator + strlen(SCHEME_SEPARATOR);
 
-			uri = malloc(strlen(scheme) + strlen(SCHEME_SEPARATOR) + strlen(target) + 1);
+			uri = curl_maprintf("%s%s%s", scheme, SCHEME_SEPARATOR, target);
 
 			if (uri == NULL) {
 				loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
@@ -2254,10 +2194,6 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 
 				return -1;
 			}
-
-			strcpy(uri, scheme);
-			strcat(uri, SCHEME_SEPARATOR);
-			strcat(uri, target);
 
 			free(data->request.uri);
 			data->request.uri = uri;
@@ -3046,12 +2982,12 @@ static void accept_event_cb(evutil_socket_t listenfd, short events, void* arg) {
 			break;
 		}
 
-		if (socket_nonblocking(cfd) == -1) {
+		if (evutil_make_socket_nonblocking(cfd) == -1) {
 			error = get_system_error();
 
 			loggln(LOG_ERROR, "[error] could not set socket to non-blocking mode: %s", error.message);
 
-			socket_close(cfd);
+			evutil_closesocket(cfd);
 
 			continue;
 		}
@@ -3061,7 +2997,7 @@ static void accept_event_cb(evutil_socket_t listenfd, short events, void* arg) {
 		if (status != 0) {
 			loggln(LOG_ERROR, "[error] could not get address info: %s", gai_strerror(status));
 
-			socket_close(cfd);
+			evutil_closesocket(cfd);
 
 			continue;
 		}
@@ -3073,7 +3009,7 @@ static void accept_event_cb(evutil_socket_t listenfd, short events, void* arg) {
 		if (data == NULL) {
 			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
 
-			socket_close(cfd);
+			evutil_closesocket(cfd);
 
 			continue;
 		}
@@ -3577,7 +3513,7 @@ int kad_main(int argc, argv_t** argv) {
 	
 	if (bind(fd, sockaddress, addrsize) == -1) {
 		error = get_system_error();
-		socket_close(fd);
+		evutil_closesocket(fd);
 		loggln(LOG_ERROR, "[error] could not bind socket: %s", error.message);
 		
 		return EXIT_FAILURE;
@@ -3585,15 +3521,15 @@ int kad_main(int argc, argv_t** argv) {
 	
 	if (listen(fd, KAD_DEFAULT_LISTEN_BACKLOG) == -1) {
 		error = get_system_error();
-		socket_close(fd);
+		evutil_closesocket(fd);
 		loggln(LOG_ERROR, "[error] could not listen on socket: %s", error.message);
 		
 		return EXIT_FAILURE;
 	}
 	
-	if (socket_nonblocking(fd) == -1) {
+	if (evutil_make_socket_nonblocking(fd) == -1) {
 		error = get_system_error();
-		socket_close(fd);
+		evutil_closesocket(fd);
 		loggln(LOG_ERROR, "[error] could not set socket to non-blocking mode: %s", error.message);
 
 		return EXIT_FAILURE;
@@ -3604,7 +3540,7 @@ int kad_main(int argc, argv_t** argv) {
 	if (listener_event == NULL) {
 		loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_EVENT_BASE_FAILURE));
 
-		socket_close(fd);
+		evutil_closesocket(fd);
 
 		return EXIT_FAILURE;
 	}

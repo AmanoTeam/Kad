@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 
+#include <event2/util.h>
 #include <picohttpparser.h>
 
 #include "http.h"
@@ -347,7 +347,7 @@ const http_header_t* http_headers_get(const http_headers_t* const headers, const
 	for (index = 0; index < headers->offset; index++) {
 		header = &headers->items[index];
 		
-		if (strcasecmp(header->key, key) == 0) {
+		if (evutil_ascii_strcasecmp(header->key, key) == 0) {
 			return header;
 		}
 	}
@@ -476,7 +476,7 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	);
 	
 	if (consumed < 0) {
-		code = KADERR_HTTP_MALFORMED_REQUEST;
+		code = (consumed == -2) ? KADERR_HTTP_INCOMPLETE : KADERR_HTTP_MALFORMED_REQUEST;
 		goto end;
 	}
 	

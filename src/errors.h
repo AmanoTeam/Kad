@@ -20,31 +20,29 @@
 #define KADERR_EVENT_BASE_FAILURE -12 /* Could not initialize the event loop */
 
 #define KADERR_FSTREAM_CLOSE_FAILURE -13 /* Could not close file */
-#define KADERR_FSTREAM_LOCK_FAILURE -14 /* Could not lock file */
-#define KADERR_FSTREAM_OPEN_FAILURE -15 /* Could not open file */
-#define KADERR_FSTREAM_READ_EMPTY_FILE -16 /* Tried to read contents from an empty file */
-#define KADERR_FSTREAM_READ_FAILURE -17 /* Could not read data from file */
-#define KADERR_FSTREAM_SEEK_FAILURE -18 /* Could not seek file */
-#define KADERR_FSTREAM_TELL_FAILURE -19 /* Could not get current file position */
-#define KADERR_FSTREAM_WRITE_FAILURE -20 /* Could not write data to file */
+#define KADERR_FSTREAM_OPEN_FAILURE -14 /* Could not open file */
+#define KADERR_FSTREAM_READ_EMPTY_FILE -15 /* Tried to read contents from an empty file */
+#define KADERR_FSTREAM_TELL_FAILURE -16 /* Could not get current file position */
+#define KADERR_FSTREAM_WRITE_FAILURE -17 /* Could not write data to file */
 
-#define KADERR_FS_GET_APP_DIRECTORY_FAILURE -21 /* Could not get application directory */
+#define KADERR_FS_GET_APP_DIRECTORY_FAILURE -18 /* Could not get application directory */
 
-#define KADERR_HTTP_HEADERS_TOO_BIG -22 /* HTTP headers exceeded max allowed size */
-#define KADERR_HTTP_MALFORMED_REQUEST -23 /* Malformed HTTP request */
-#define KADERR_HTTP_UNKNOWN_METHOD -24 /* Unknown HTTP method */
-#define KADERR_HTTP_UNSUPPORTED_VERSION -25 /* Unsupported HTTP version */
+#define KADERR_HTTP_HEADERS_TOO_BIG -19 /* HTTP headers exceeded max allowed size */
+#define KADERR_HTTP_INCOMPLETE -20 /* The HTTP message is still incomplete */
+#define KADERR_HTTP_MALFORMED_REQUEST -21 /* Malformed HTTP request */
+#define KADERR_HTTP_UNKNOWN_METHOD -22 /* Unknown HTTP method */
+#define KADERR_HTTP_UNSUPPORTED_VERSION -23 /* Unsupported HTTP version */
 
-#define KADERR_LOGGING_INVALID_LEVEL -26 /* Could not parse the log level */
+#define KADERR_LOGGING_INVALID_LEVEL -24 /* Could not parse the log level */
 
-#define KADERR_MEMORY_ALLOCATE_FAILURE -27 /* Could not allocate memory */
+#define KADERR_MEMORY_ALLOCATE_FAILURE -25 /* Could not allocate memory */
 
-#define KADERR_SOCKET_RECV_FAILURE -28 /* Cannot receive data on socket */
-#define KADERR_SOCKET_SEND_FAILURE -29 /* Cannot send data on socket */
+#define KADERR_SOCKET_RECV_FAILURE -26 /* Cannot receive data on socket */
+#define KADERR_SOCKET_SEND_FAILURE -27 /* Cannot send data on socket */
 
-#define KADERR_SSL_INIT_FAILURE -30 /* Failed to initialize the SSL engine */
-#define KADERR_SSL_RECV_FAILURE -31 /* Cannot receive data on SSL socket */
-#define KADERR_SSL_SEND_FAILURE -32 /* Cannot send data on SSL socket */
+#define KADERR_SSL_INIT_FAILURE -28 /* Failed to initialize the SSL engine */
+#define KADERR_SSL_RECV_FAILURE -29 /* Cannot receive data on SSL socket */
+#define KADERR_SSL_SEND_FAILURE -30 /* Cannot send data on SSL socket */
 
 const char* strkaderr(const int code);
 

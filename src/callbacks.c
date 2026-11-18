@@ -5,6 +5,7 @@
 #include <errno.h>
 
 #include <curl/curl.h>
+#include <event2/util.h>
 
 #include "cleanup.h"
 #include "callbacks.h"
@@ -163,8 +164,6 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 	char* line = NULL;
 	char* start = NULL;
 
-	char status_code[3 + 1];
-
 	size_t index = 0;
 
 	const size_t chunk_size = nitems * size;
@@ -208,25 +207,14 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			message = "Unknown";
 		}
 
-		sprintf(status_code, "%i", (int) response.status);
-
-		line_size = strlen(PROTOCOL_NAME) + strlen(SLASH) + strlen(http_version) + strlen(SPACE) + strlen(status_code) + strlen(SPACE) + strlen(message) + strlen(CRLF);
-
-		line = malloc(line_size + 1);
+		line = curl_maprintf("%s%s%s %i %s%s", PROTOCOL_NAME, SLASH, http_version, (int) response.status, message, CRLF);
 
 		if (line == NULL) {
 			status = -1;
 			goto end;
 		}
 
-		strcpy(line, PROTOCOL_NAME);
-		strcat(line, SLASH);
-		strcat(line, http_version);
-		strcat(line, SPACE);
-		strcat(line, status_code);
-		strcat(line, SPACE);
-		strcat(line, message);
-		strcat(line, CRLF);
+		line_size = strlen(line);
 
 		data->retryable = false;
 
@@ -262,16 +250,16 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			header = &response.headers.items[index];
 
 			/* cURL already performs content decoding, so there is no need for these headers */
-			if (strcasecmp(header->key, "Content-Encoding") == 0) {
+			if (evutil_ascii_strcasecmp(header->key, "Content-Encoding") == 0) {
 				continue;
 			}
 
-			if (strcasecmp(header->key, "Transfer-Encoding") == 0) {
+			if (evutil_ascii_strcasecmp(header->key, "Transfer-Encoding") == 0) {
 				continue;
 			}
 
 			/* This header will report an incorrect value for compressed/chunked responses, so let's just remove it */
-			if (strcasecmp(header->key, "Content-Length") == 0) {
+			if (evutil_ascii_strcasecmp(header->key, "Content-Length") == 0) {
 				item = http_headers_get(&response.headers, "Transfer-Encoding");
 
 				if (item != NULL && strcmp(item->value, "chunked") == 0) {
@@ -285,40 +273,28 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 				}
 			}
 
-			if (strcasecmp(header->key, "Connection") == 0) {
+			if (evutil_ascii_strcasecmp(header->key, "Connection") == 0) {
 				continue;
 			}
 
-			line = malloc(strlen(header->key) + strlen(HEADER_SEPARATOR) + strlen(header->value) + strlen(CRLF) + 1);
+			line = curl_maprintf("%s%s%s%s", header->key, HEADER_SEPARATOR, header->value, CRLF);
 
 			if (line == NULL) {
 				status = -1;
 				goto end;
 			}
 
-			strcpy(line, header->key);
-
 			if (response.version >= HTTP2) {
-				*line = (char) toupper(line[0]);
+				const size_t key_size = strlen(header->key);
 
-				start = line;
+				*line = (char) toupper((unsigned char) line[0]);
 
-				while (1) {
-					start = strstr(start, "-");
-
-					if (start == NULL) {
-						break;
+				for (start = line; start < line + key_size; start++) {
+					if (*start == '-') {
+						start[1] = (char) toupper((unsigned char) start[1]);
 					}
-
-					start += 1;
-
-					*start = (char) toupper(start[0]);
 				}
 			}
-
-			strcat(line, HEADER_SEPARATOR);
-			strcat(line, header->value);
-			strcat(line, CRLF);
 
 			if (client_write(data, line, strlen(line)) != 0) {
 				free(line);

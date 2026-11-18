@@ -62,12 +62,16 @@ set(PICOHTTPPARSER_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/pico
 set(ZSTD_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/zstd")
 set(JANSSON_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/jansson")
 set(LIBEVENT_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/libevent")
+set(WHEREAMI_SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/submodules/whereami")
 
 set(
 	INCLUDE_DIRECTORIES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src"
 	"${BORINGSSL_SOURCE_DIRECTORY}/include"
 	"${PICOHTTPPARSER_SOURCE_DIRECTORY}"
+	"${CARES_SOURCE_DIRECTORY}/include"
+	"${CMAKE_CURRENT_BINARY_DIR}/submodules/c-ares"
+	"${WHEREAMI_SOURCE_DIRECTORY}/src"
 )
 
 set(
@@ -85,17 +89,9 @@ set(
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/logging.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/fstream.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/getexec.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/parentpath.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/basename.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/realpath.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/absrel.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/hex.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/strsplit.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/strsub.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/urlencode.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/urldecode.c"
-	"${CMAKE_CURRENT_SOURCE_DIR}/src/socketclose.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/unboundshim.c"
+	"${WHEREAMI_SOURCE_DIRECTORY}/src/whereami.c"
 	"${PICOHTTPPARSER_SOURCE_DIRECTORY}/picohttpparser.c"
 )
 
@@ -1008,6 +1004,7 @@ target_link_libraries(
 	${KAD_CURL_LIBRARY}
 	${KAD_EVENT_LIBRARY}
 	jansson
+	c-ares
 )
 
 if (WIN32)

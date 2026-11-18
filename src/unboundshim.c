@@ -18,6 +18,7 @@
 	#include <netinet/in.h>
 #endif
 
+#include <ares.h>
 #include <unbound.h>
 #include <unbound-event.h>
 
@@ -73,51 +74,35 @@ static int parse_query(
 	size_t* const question_end
 ) {
 	
-	size_t pos = 12;
-	size_t nlen = 0;
+	char* decoded = NULL;
+	
+	long enclen = 0;
+	
+	size_t pos = 0;
 	
 	if (len < 12 || (pkt[4] == 0 && pkt[5] == 0)) {
 		return -1;
 	}
 	
-	for (;;) {
-		uint8_t llen = 0;
-		
-		if (pos >= len) {
-			return -1;
-		}
-		
-		llen = pkt[pos++];
-		
-		if (llen == 0) {
-			break;
-		}
-		
-		if ((llen & 0xC0) != 0 || (pos + llen) > len) {
-			return -1;
-		}
-		
-		if ((nlen + llen + 2) > namesz) {
-			return -1;
-		}
-		
-		memcpy(name + nlen, pkt + pos, llen);
-		
-		nlen += llen;
-		name[nlen++] = '.';
-		
-		pos += llen;
-	}
-	
-	if (nlen == 0 || (pos + 4) > len) {
+	if (ares_expand_name(pkt + 12, pkt, (int) len, &decoded, &enclen) != ARES_SUCCESS) {
 		return -1;
 	}
 	
-	name[nlen - 1] = '\0';
+	pos = 12 + (size_t) enclen;
+	
+	if (decoded[0] == '\0' || strlen(decoded) >= namesz || (pos + 4) > len) {
+		ares_free_string(decoded);
+		
+		return -1;
+	}
+	
+	strcpy(name, decoded);
 	
 	*qtype = (uint16_t) ((pkt[pos] << 8) | pkt[pos + 1]);
 	*qclass = (uint16_t) ((pkt[pos + 2] << 8) | pkt[pos + 3]);
 	*question_end = pos + 4;
+	
+	ares_free_string(decoded);
 	
 	return 0;
 	

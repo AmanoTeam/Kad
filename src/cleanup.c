@@ -7,7 +7,6 @@
 #include "ssl.h"
 #include "transferdata.h"
 #include "buffer.h"
-#include "socketclose.h"
 
 #if defined(KAD_CAPTURE)
 	#include "capture.h"
@@ -18,7 +17,7 @@ void __curl_slist_free_all(struct curl_slist** ptr) {
 }
 
 void __close(int* ptr) {
-	socket_close(*ptr);
+	evutil_closesocket(*ptr);
 }
 
 void __http_request_free(http_request_t* ptr) {
@@ -55,7 +54,7 @@ void transferdata_close(transferdata_t* const data) {
 	ssl_close(&data->context);
 
 	if (data->fd > 0) {
-		socket_close(data->fd);
+		evutil_closesocket(data->fd);
 	}
 
 	http_request_free(&data->request);

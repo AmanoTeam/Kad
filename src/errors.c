@@ -35,16 +35,10 @@ const char* strkaderr(const int code) {
 			return "Could not initialize the event loop";
 		case KADERR_FSTREAM_CLOSE_FAILURE:
 			return "Could not close file";
-		case KADERR_FSTREAM_LOCK_FAILURE:
-			return "Could not lock file";
 		case KADERR_FSTREAM_OPEN_FAILURE:
 			return "Could not open file";
 		case KADERR_FSTREAM_READ_EMPTY_FILE:
 			return "Tried to read contents from an empty file";
-		case KADERR_FSTREAM_READ_FAILURE:
-			return "Could not read data from file";
-		case KADERR_FSTREAM_SEEK_FAILURE:
-			return "Could not seek file";
 		case KADERR_FSTREAM_TELL_FAILURE:
 			return "Could not get current file position";
 		case KADERR_FSTREAM_WRITE_FAILURE:
@@ -53,6 +47,8 @@ const char* strkaderr(const int code) {
 			return "Could not get application directory";
 		case KADERR_HTTP_HEADERS_TOO_BIG:
 			return "HTTP headers exceeded max allowed size";
+		case KADERR_HTTP_INCOMPLETE:
+			return "The HTTP message is still incomplete";
 		case KADERR_HTTP_MALFORMED_REQUEST:
 			return "Malformed HTTP request";
 		case KADERR_HTTP_UNKNOWN_METHOD:

@@ -2,6 +2,8 @@
 #include <stdarg.h>
 #include <stdlib.h>
 
+#include <curl/curl.h>
+
 #include <windows.h>
 #include <fcntl.h>
 #include <io.h>
@@ -16,25 +18,14 @@ int wio_printf(const char* const format, ...) {
 	wchar_t* wvalue = NULL;
 	
 	va_list list;
+
 	va_start(list, format);
-	
-	wsize = vsnprintf(NULL, 0, format, list);
-	
-	if (wsize < 0) {
-		wsize = -1;
-		goto end;
-	}
-	
-	value = malloc((size_t) (wsize + 1));
-	
+
+	value = curl_mvaprintf(format, list);
+
+	va_end(list);
+
 	if (value == NULL) {
-		wsize = -1;
-		goto end;
-	}
-	
-	wsize = vsnprintf(value, (size_t) (wsize + 1), format, list);
-	
-	if (wsize < 0) {
 		wsize = -1;
 		goto end;
 	}
@@ -61,14 +52,12 @@ int wio_printf(const char* const format, ...) {
 	wsize = wprintf(L"%ls", wvalue);
 	
 	end:;
-	
+
 	free(value);
 	free(wvalue);
-	
-	va_end(list);
-	
+
 	return wsize;
-	
+
 }
 
 int wio_fprintf(FILE* const stream, const char* const format, ...) {
@@ -79,25 +68,14 @@ int wio_fprintf(FILE* const stream, const char* const format, ...) {
 	wchar_t* wvalue = NULL;
 	
 	va_list list;
+
 	va_start(list, format);
-	
-	wsize = vsnprintf(NULL, 0, format, list);
-	
-	if (wsize < 0) {
-		wsize = -1;
-		goto end;
-	}
-	
-	value = malloc((size_t) (wsize + 1));
-	
+
+	value = curl_mvaprintf(format, list);
+
+	va_end(list);
+
 	if (value == NULL) {
-		wsize = -1;
-		goto end;
-	}
-	
-	wsize = vsnprintf(value, (size_t) (wsize + 1), format, list);
-	
-	if (wsize < 0) {
 		wsize = -1;
 		goto end;
 	}
@@ -124,40 +102,24 @@ int wio_fprintf(FILE* const stream, const char* const format, ...) {
 	wsize = fwprintf(stream, L"%ls", wvalue);
 	
 	end:;
-	
+
 	free(value);
 	free(wvalue);
-	
-	va_end(list);
-	
+
 	return wsize;
-	
+
 }
 
 int wio_vfprintf(FILE* const stream, const char* const format, va_list list) {
-	
+
 	int wsize = 0;
-	
+
 	char* value = NULL;
 	wchar_t* wvalue = NULL;
-	
-	wsize = vsnprintf(NULL, 0, format, list);
-	
-	if (wsize < 0) {
-		wsize = -1;
-		goto end;
-	}
-	
-	value = malloc((size_t) (wsize + 1));
-	
+
+	value = curl_mvaprintf(format, list);
+
 	if (value == NULL) {
-		wsize = -1;
-		goto end;
-	}
-	
-	wsize = vsnprintf(value, (size_t) (wsize + 1), format, list);
-	
-	if (wsize < 0) {
 		wsize = -1;
 		goto end;
 	}

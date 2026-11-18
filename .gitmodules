@@ -43,3 +43,6 @@
 [submodule "submodules/unbound"]
 	path = submodules/unbound
 	url = https://github.com/NLnetLabs/unbound
+[submodule "submodules/whereami"]
+	path = submodules/whereami
+	url = https://github.com/gpakosz/whereami.git

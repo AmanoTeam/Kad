@@ -1,417 +1,119 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(__OpenBSD__)
-	#include <string.h>
-#endif
-
-#if defined(_WIN32)
-	#include <windows.h>
-	#include <fileapi.h>
-#endif
-
-#if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__DragonFly__) || defined(__OpenBSD__)
-	#include <sys/types.h>
-	#include <sys/sysctl.h>
-#endif
-
-#if defined(__APPLE__)
-	#include <mach-o/dyld.h>
-#endif
-
-#if defined(__HAIKU__)
-	#include <FindDirectory.h>
-#endif
-
-#if !defined(_WIN32)
-	#include <unistd.h>
-	#include <limits.h>
-#endif
-
-#if defined(__OpenBSD__)
-	#include "exists.h"
-	#include "absrel.h"
-	#include "realpath.h"
-	#include "find_exe.h"
-#endif
-
-#if defined(__OpenBSD__) || defined(_WIN32)
-	#include "sep.h"
-#endif
+#include <whereami.h>
 
 #include "getexec.h"
-#include "parentpath.h"
-#include "basename.h"
 
 char* get_app_filename(void) {
 	/*
 	Returns the filename of the application's executable.
-	
+
 	Returns a null pointer on error.
 	*/
-	
-	int err = 0;
-	
+
+	int length = 0;
+	int dirname_length = 0;
+
 	char* app_filename = NULL;
-	
-	#if defined(_WIN32)
-		HANDLE handle = 0;
-		DWORD filenames = 0;
-		
-		size_t size = 0;
-		
-		#if defined(_UNICODE)
-			wchar_t* wfilename = NULL;
-			
-			wfilename = malloc(((size_t) 32768) * sizeof(*wfilename));
-			
-			if (wfilename == NULL) {
-				err = -1;
-				goto end;
-			}
-			
-			filenames = GetModuleFileNameW(0, wfilename, 32768);
-			
-			if (filenames == 0) {
-				err = -1;
-				goto end;
-			}
-			
-			handle = CreateFileW(
-				wfilename,
-				0,
-				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-				NULL,
-				OPEN_EXISTING,
-				0,
-				NULL
-			);
-			
-			if (handle == INVALID_HANDLE_VALUE) {
-				err = -1;
-				goto end;
-			}
-			
-			filenames = GetFinalPathNameByHandleW(
-				handle,
-				NULL,
-				0,
-				VOLUME_NAME_DOS | FILE_NAME_NORMALIZED
-			);
-			
-			if (filenames == 0) {
-				err = -1;
-				goto end;
-			}
-			
-			filenames++;
-			
-			app_filename = malloc((size_t) filenames);
-			
-			if (app_filename == NULL) {
-				err = -1;
-				goto end;
-			}
-			
-			{
-				wchar_t* wpath = malloc(((size_t) filenames) * sizeof(*wpath));
-				
-				if (wpath == NULL) {
-					err = -1;
-					goto end;
-				}
-				
-				if (GetFinalPathNameByHandleW(
-					handle,
-					wpath,
-					filenames,
-					VOLUME_NAME_DOS | FILE_NAME_NORMALIZED
-				) == 0) {
-					free(wpath);
-					
-					err = -1;
-					goto end;
-				}
-				
-				if (WideCharToMultiByte(CP_UTF8, 0, wpath, -1, app_filename, (int) filenames, NULL, NULL) == 0) {
-					free(wpath);
-					
-					err = -1;
-					goto end;
-				}
-				
-				free(wpath);
-			}
-		#else
-			app_filename = malloc(PATH_MAX);
-			
-			if (app_filename == NULL) {
-				err = -1;
-				goto end;
-			}
-			
-			if (GetModuleFileNameA(0, app_filename, PATH_MAX) == 0) {
-				err = -1;
-				goto end;
-			}
-			
-			handle = CreateFileA(
-				app_filename,
-				0,
-				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-				NULL,
-				OPEN_EXISTING,
-				0,
-				NULL
-			);
-			
-			free(app_filename);
-			app_filename = NULL;
-			
-			if (handle == INVALID_HANDLE_VALUE) {
-				err = -1;
-				goto end;
-			}
-			
-			filenames = GetFinalPathNameByHandleA(
-				handle,
-				NULL,
-				0,
-				VOLUME_NAME_DOS | FILE_NAME_NORMALIZED
-			);
-			
-			if (filenames == 0) {
-				err = -1;
-				goto end;
-			}
-			
-			filenames++;
-			
-			app_filename = malloc((size_t) filenames);
-			
-			if (app_filename == NULL) {
-				err = -1;
-				goto end;
-			}
-			
-			filenames = GetFinalPathNameByHandleA(
-				handle,
-				app_filename,
-				filenames,
-				VOLUME_NAME_DOS | FILE_NAME_NORMALIZED
-			);
-			
-			if (filenames == 0) {
-				err = -1;
-				goto end;
-			}
-		#endif
-		
-		size = strlen(WIN10_LONG_PATH_PREFIX_S);
-		
-		if (strncmp(app_filename, WIN10_LONG_PATH_PREFIX_S, size) == 0) {
-			memmove(app_filename, app_filename + size, strlen(app_filename + size) + 1);
-		}
-	#elif defined(__FreeBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
-		#if defined(__NetBSD__)
-			const int call[] = {
-				CTL_KERN,
-				KERN_PROC_ARGS,
-				-1,
-				KERN_PROC_PATHNAME
-			};
-		#else
-			const int call[] = {
-				CTL_KERN,
-				KERN_PROC,
-				KERN_PROC_PATHNAME,
-				-1
-			};
-		#endif
-		
-		size_t size = PATH_MAX;
-		app_filename = malloc(size);
-		
-		if (app_filename == NULL) {
-			err = -1;
-			goto end;
-		}
-		
-		if (sysctl(call, sizeof(call) / sizeof(*call), app_filename, &size, NULL, 0) == -1) {
-			err = -1;
-			goto end;
-		}
-	#elif defined(__OpenBSD__)
-		const pid_t pid = getpid();
-		
-		const int call[] = {
-			CTL_KERN,
-			KERN_PROC_ARGS,
-			pid,
-			KERN_PROC_ARGV
-		};
-		
-		const char* name = NULL;
-		
-		char** argv = NULL;
-		
-		size_t size = 0;
-		
-		if (sysctl(call, sizeof(call) / sizeof(*call), NULL, &size, NULL, 0) == -1) {
-			err = -1;
-			goto end;
-		}
-		
-		argv = malloc(size);
-		
-		if (argv == NULL) {
-			err = -1;
-			goto end;
-		}
-		
-		if (sysctl(call, sizeof(call) / sizeof(*call), argv, &size, NULL, 0) == -1) {
-			err = -1;
-			goto end;
-		}
-		
-		name = argv[0];
-		
-		if (isabsolute(name) || strchr(name, PATHSEP) != NULL) {
-			app_filename = expand_filename(name);
-			goto end;
-		}
-		
-		app_filename = find_exe(name);
-	#elif defined(__APPLE__)
-		uint32_t paths = PATH_MAX;
-		char* path = malloc((size_t) paths);
-		
-		if (path == NULL) {
-			err = -1;
-			goto end;
-		}
-		
-		if (_NSGetExecutablePath(path, &paths) == -1) {
-			err = -1;
-			goto end;
-		}
-		
-		app_filename = malloc(PATH_MAX);
-		
-		if (app_filename == NULL) {
-			err = -1;
-			goto end;
-		}
-		
-		if (realpath(path, app_filename) == NULL) {
-			err = -1;
-			goto end;
-		}
-	#elif defined(__HAIKU__)
-		app_filename = malloc(PATH_MAX);
-		
-		if (app_filename == NULL) {
-			err = -1;
-			goto end;
-		}
-		
-		if (find_path(NULL, B_FIND_PATH_IMAGE_PATH, NULL, app_filename, PATH_MAX) != B_OK) {
-			err = -1;
-			goto end;
-		}
-	#else
-		ssize_t wsize = 0;
-		
-		app_filename = malloc(PATH_MAX);
-		
-		if (app_filename == NULL) {
-			err = -1;
-			goto end;
-		}
-		
-		wsize = readlink("/proc/self/exe", app_filename, PATH_MAX);
-		
-		if (wsize == -1) {
-			err = -1;
-			goto end;
-		}
-		
-		app_filename[wsize] = '\0';
-	#endif
-	
-	end:;
-	
-	#if defined(_WIN32)
-		CloseHandle(handle);
-	#endif
-	
-	#if defined(_WIN32) && defined(_UNICODE)
-		free(wfilename);
-	#endif
-	
-	#if defined(__OpenBSD__)
-		free(argv);
-	#endif
-	
-	#if defined(__APPLE__)
-		free(path);
-	#endif
-	
-	if (err != 0) {
-		free(app_filename);
-		app_filename = NULL;
+
+	length = wai_getExecutablePath(NULL, 0, &dirname_length);
+
+	if (length < 0) {
+		return NULL;
 	}
-	
+
+	app_filename = malloc((size_t) length + 1);
+
+	if (app_filename == NULL) {
+		return NULL;
+	}
+
+	if (wai_getExecutablePath(app_filename, length, &dirname_length) == -1) {
+		free(app_filename);
+
+		return NULL;
+	}
+
+	app_filename[length] = '\0';
+
 	return app_filename;
-	
+
 }
 
 char* get_app_directory(void) {
-	
-	size_t status = 0;
-	size_t size = 0;
-	
-	unsigned char ch = 0;
-	
+
+	int length = 0;
+	int dirname_length = 0;
+	int offset = 0;
+
+	size_t namesize = 0;
+
 	char* app_filename = NULL;
 	char* app_directory = NULL;
-	
+
 	const char* name = NULL;
-	
-	app_filename = get_app_filename();
-	
+
+	length = wai_getExecutablePath(NULL, 0, &dirname_length);
+
+	if (length < 0) {
+		return NULL;
+	}
+
+	app_filename = malloc((size_t) length + 1);
+
 	if (app_filename == NULL) {
-		goto end;
+		return NULL;
 	}
-	
-	app_directory = malloc(strlen(app_filename) + 1);
-	
+
+	if (wai_getExecutablePath(app_filename, length, &dirname_length) == -1) {
+		free(app_filename);
+
+		return NULL;
+	}
+
+	app_filename[length] = '\0';
+
+	app_directory = malloc((size_t) dirname_length + 2);
+
 	if (app_directory == NULL) {
-		goto end;
+		free(app_filename);
+
+		return NULL;
 	}
-	
-	get_parent_path(app_filename, app_directory, 1);
-	
-	name = basename(app_directory);
-	
-	ch = name[0];
-	size = strlen(name);
-	
-	status = (
-		(size == 4 && (ch == 'x'  || ch == 's') && strcmp(name + 1, "bin") == 0) ||
-		strcmp(name, "bin") == 0
-	);
-	
-	if (!status) {
-		goto end;
-	}
-	
-	get_parent_path(app_filename, app_directory, 2);
-	
-	end:;
-	
+
+	memcpy(app_directory, app_filename, (size_t) dirname_length);
+
+	app_directory[dirname_length] = '\0';
+
 	free(app_filename);
-	
+
+	name = app_directory + dirname_length;
+
+	while (name > app_directory && name[-1] != '/' && name[-1] != '\\') {
+		name--;
+	}
+
+	namesize = strlen(name);
+
+	if (!(
+		(namesize == 4 && (name[0] == 'x' || name[0] == 's') && strcmp(name + 1, "bin") == 0) ||
+		strcmp(name, "bin") == 0
+	)) {
+		return app_directory;
+	}
+
+	offset = (int) (name - app_directory) - 1;
+
+	if (offset > 0) {
+		app_directory[offset] = '\0';
+	} else if (offset == 0) {
+		app_directory[0] = '/';
+		app_directory[1] = '\0';
+	} else {
+		app_directory[0] = '\0';
+	}
+
 	return app_directory;
-	
+
 }

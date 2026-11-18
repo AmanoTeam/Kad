@@ -17,6 +17,7 @@
 #endif
 
 #include <curl/curl.h>
+#include <event2/util.h>
 #include <jansson.h>
 
 #include "capture.h"
@@ -52,20 +53,6 @@ static int capture_header_compare(const void* const left, const void* const righ
 	const capture_header_t* const second = (const capture_header_t*) right;
 
 	return strcmp(first->key, second->key);
-
-}
-
-static char* capture_strdup(const char* const string) {
-
-	char* copy = malloc(strlen(string) + 1);
-
-	if (copy == NULL) {
-		return NULL;
-	}
-
-	strcpy(copy, string);
-
-	return copy;
 
 }
 
@@ -120,7 +107,7 @@ static char* capture_directory_create(const time_t timestamp) {
 		goto end;
 	}
 
-	root = malloc(strlen(app_directory) + strlen(PATHSEP_S) + strlen(CAPTURE_DIRECTORY_NAME) + 1);
+	root = curl_maprintf("%s%s%s", app_directory, PATHSEP_S, CAPTURE_DIRECTORY_NAME);
 
 	if (root == NULL) {
 		error = get_system_error();
@@ -128,10 +115,6 @@ static char* capture_directory_create(const time_t timestamp) {
 
 		goto end;
 	}
-
-	strcpy(root, app_directory);
-	strcat(root, PATHSEP_S);
-	strcat(root, CAPTURE_DIRECTORY_NAME);
 
 	status = capture_mkdir(root);
 
@@ -149,7 +132,7 @@ static char* capture_directory_create(const time_t timestamp) {
 			snprintf(name, sizeof(name), "%lld_%i", (long long) timestamp, attempt);
 		}
 
-		directory = malloc(strlen(root) + strlen(PATHSEP_S) + strlen(name) + 1);
+		directory = curl_maprintf("%s%s%s", root, PATHSEP_S, name);
 
 		if (directory == NULL) {
 			error = get_system_error();
@@ -157,10 +140,6 @@ static char* capture_directory_create(const time_t timestamp) {
 
 			goto end;
 		}
-
-		strcpy(directory, root);
-		strcat(directory, PATHSEP_S);
-		strcat(directory, name);
 
 		status = capture_mkdir(directory);
 
@@ -193,15 +172,11 @@ static fstream_t* capture_file_open(const char* const directory, const char* con
 
 	fstream_t* stream = NULL;
 
-	char* path = malloc(strlen(directory) + strlen(PATHSEP_S) + strlen(filename) + 1);
+	char* path = curl_maprintf("%s%s%s", directory, PATHSEP_S, filename);
 
 	if (path == NULL) {
 		return NULL;
 	}
-
-	strcpy(path, directory);
-	strcat(path, PATHSEP_S);
-	strcat(path, filename);
 
 	stream = fstream_open(path, FSTREAM_WRITE);
 
@@ -220,7 +195,7 @@ static int capture_file_write(const char* const directory, const char* const fil
 
 	fstream_t* stream = NULL;
 
-	char* path = malloc(strlen(directory) + strlen(PATHSEP_S) + strlen(filename) + 1);
+	char* path = curl_maprintf("%s%s%s", directory, PATHSEP_S, filename);
 
 	int err = KADERR_SUCCESS;
 
@@ -228,10 +203,6 @@ static int capture_file_write(const char* const directory, const char* const fil
 		err = KADERR_MEMORY_ALLOCATE_FAILURE;
 		goto end;
 	}
-
-	strcpy(path, directory);
-	strcat(path, PATHSEP_S);
-	strcat(path, filename);
 
 	stream = fstream_open(path, FSTREAM_WRITE);
 
@@ -436,15 +407,11 @@ static json_t* capture_headers_json(const char* const buffer, const size_t size,
 
 	for (index = 1; index < offset; index++) {
 		if (strcmp(items[index].key, items[last].key) == 0) {
-			char* merged = malloc(strlen(items[last].value) + strlen(", ") + strlen(items[index].value) + 1);
+			char* merged = curl_maprintf("%s, %s", items[last].value, items[index].value);
 
 			if (merged == NULL) {
 				goto failure;
 			}
-
-			strcpy(merged, items[last].value);
-			strcat(merged, ", ");
-			strcat(merged, items[index].value);
 
 			free(items[last].value);
 			items[last].value = merged;
@@ -652,7 +619,7 @@ void capture_init(capture_t* const capture, const http_request_t* const request)
 	capture->method = http_method_stringify(request->method);
 	capture->time = time(NULL);
 
-	capture->url = capture_strdup(request->uri);
+	capture->url = strdup(request->uri);
 
 	if (capture->url == NULL) {
 		loggln(LOG_ERROR, "[error] could not allocate memory: %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
@@ -696,7 +663,7 @@ void capture_request_headers(capture_t* const capture, const char* const buffer,
 	capture->request_headers.slength += size;
 
 	if (capture->request_headers.slength > strlen(CRLFCRLF) && memcmp(capture->request_headers.s + (capture->request_headers.slength - strlen(CRLFCRLF)), CRLFCRLF, strlen(CRLFCRLF)) == 0) {
-		if (strncasecmp(capture->request_headers.s, CAPTURE_CONNECT_PREFIX, strlen(CAPTURE_CONNECT_PREFIX)) == 0) {
+		if (evutil_ascii_strncasecmp(capture->request_headers.s, CAPTURE_CONNECT_PREFIX, strlen(CAPTURE_CONNECT_PREFIX)) == 0) {
 			/* the request to establish the proxy tunnel, the actual request follows it */
 			buffer_free(&capture->request_headers);
 		} else {
