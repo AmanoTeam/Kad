@@ -166,13 +166,11 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 
 	size_t index = 0;
 
-	const size_t chunk_size = nitems * size;
-
-	size_t line_size = 0;
+	size_t length = nitems * size;
 
 	int code = 0;
 
-	const size_t slength = data->buffer.slength + chunk_size;
+	const size_t slength = data->buffer.slength + length;
 
 	data->buffer.s = realloc(data->buffer.s, slength + 1);
 
@@ -181,7 +179,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		goto end;
 	}
 
-	memcpy(data->buffer.s + data->buffer.slength, buffer, chunk_size);
+	memcpy(data->buffer.s + data->buffer.slength, buffer, length);
 
 	data->buffer.s[slength] = '\0';
 	data->buffer.slength = slength;
@@ -214,11 +212,11 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			goto end;
 		}
 
-		line_size = strlen(line);
+		length = strlen(line);
 
 		data->retryable = false;
 
-		if (client_write(data, line, line_size) != 0) {
+		if (client_write(data, line, length) != 0) {
 			free(line);
 			line = NULL;
 
@@ -285,11 +283,11 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			}
 
 			if (response.version >= HTTP2) {
-				const size_t key_size = strlen(header->key);
+				length = strlen(header->key);
 
 				*line = (char) toupper((unsigned char) line[0]);
 
-				for (start = line; start < line + key_size; start++) {
+				for (start = line; start < line + length; start++) {
 					if (*start == '-') {
 						start[1] = (char) toupper((unsigned char) start[1]);
 					}

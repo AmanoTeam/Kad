@@ -2037,7 +2037,7 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 	int code = 0;
 
 	size_t parse_size = 0;
-	size_t excess_size = 0;
+	size_t length = 0;
 
 	s = realloc(data->in.s, data->in.slength + size + 1);
 
@@ -2079,10 +2079,10 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 		return -1;
 	}
 
-	excess_size = data->in.slength - parse_size;
+	length = data->in.slength - parse_size;
 
-	if (excess_size > 0) {
-		s = realloc(data->request.body.content, data->request.body.size + excess_size);
+	if (length > 0) {
+		s = realloc(data->request.body.content, data->request.body.size + length);
 
 		if (s == NULL) {
 			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
@@ -2092,10 +2092,10 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 			return -1;
 		}
 
-		memcpy(s + data->request.body.size, data->in.s + parse_size, excess_size);
+		memcpy(s + data->request.body.size, data->in.s + parse_size, length);
 
 		data->request.body.content = s;
-		data->request.body.size += excess_size;
+		data->request.body.size += length;
 	}
 
 	buffer_free(&data->in);
@@ -2173,11 +2173,11 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 		const char* scheme = NULL;
 
 		if (separator != NULL) {
-			size_t scheme_size = (size_t) (separator - data->request.uri);
+			length = (size_t) (separator - data->request.uri);
 
-			if (scheme_size == strlen(HTTP_SCHEME) && evutil_ascii_strncasecmp(data->request.uri, HTTP_SCHEME, scheme_size) == 0) {
+			if (length == strlen(HTTP_SCHEME) && evutil_ascii_strncasecmp(data->request.uri, HTTP_SCHEME, length) == 0) {
 				scheme = WS_SCHEME;
-			} else if (scheme_size == strlen(HTTPS_SCHEME) && evutil_ascii_strncasecmp(data->request.uri, HTTPS_SCHEME, scheme_size) == 0) {
+			} else if (length == strlen(HTTPS_SCHEME) && evutil_ascii_strncasecmp(data->request.uri, HTTPS_SCHEME, length) == 0) {
 				scheme = WSS_SCHEME;
 			}
 		}

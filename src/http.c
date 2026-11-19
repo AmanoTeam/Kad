@@ -404,14 +404,11 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	const char* parse_buffer = buffer;
 	size_t parse_size = size;
 	
-	const char* method = NULL;
-	size_t method_size = 0;
+	const char* token = NULL;
+	size_t token_size = 0;
 	
 	const char* path = NULL;
 	size_t path_size = 0;
-	
-	const char* message = NULL;
-	size_t message_size = 0;
 	
 	char* patched_buffer = NULL;
 	
@@ -471,8 +468,8 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	
 	consumed = (
 		(object->type == HTTP_REQUEST)
-			? phr_parse_request(parse_buffer, parse_size, &method, &method_size, &path, &path_size, &minor_version, headers, &headers_count, 0)
-			: phr_parse_response(parse_buffer, parse_size, &minor_version, &status, &message, &message_size, headers, &headers_count, 0)
+			? phr_parse_request(parse_buffer, parse_size, &token, &token_size, &path, &path_size, &minor_version, headers, &headers_count, 0)
+			: phr_parse_response(parse_buffer, parse_size, &minor_version, &status, &token, &token_size, headers, &headers_count, 0)
 	);
 	
 	if (consumed < 0) {
@@ -517,7 +514,7 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	}
 	
 	if (code == KADERR_SUCCESS && object->type == HTTP_REQUEST) {
-		object->method = http_method_from_string(method, method_size);
+		object->method = http_method_from_string(token, token_size);
 		
 		if (object->method == 0) {
 			code = KADERR_HTTP_UNKNOWN_METHOD;
