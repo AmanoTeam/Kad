@@ -169,9 +169,9 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	const struct phr_header* header = NULL;
 	struct phr_header headers[MAX_HTTP_HEADERS_COUNT];
 
-	size_t index = MAX_HTTP_HEADERS_COUNT;
+	size_t index = 0;
+	size_t hcount = MAX_HTTP_HEADERS_COUNT;
 	
-	int status_code = 0;
 	int http_version = 0;
 	
 	int status = 0;
@@ -180,11 +180,11 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 
 	switch (object->type) {
 		case HTTP_REQUEST: {
-			status = phr_parse_request(buffer, size, &token, &token_size, &path, &path_size, &http_version, headers, &index, 0);
+			status = phr_parse_request(buffer, size, &token, &token_size, &path, &path_size, &http_version, headers, &hcount, 0);
 			break;
 		}
 		case HTTP_RESPONSE: {
-			status = phr_parse_response(buffer, size, &http_version, &object->status, &token, &token_size, headers, &index, 0);
+			status = phr_parse_response(buffer, size, &http_version, &object->status, &token, &token_size, headers, &hcount, 0);
 			break;
 		}
 		default: {
@@ -203,7 +203,7 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 		goto end;
 	}
 
-	err = http_headers_reserve(&object->headers, index);
+	err = http_headers_reserve(&object->headers, hcount);
 
 	if (code != KADERR_SUCCESS) {
 		goto end;
@@ -233,12 +233,12 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 		object->uri[path_size] = '\0';
 	}
 
-	for (index = 0; index < headers_count; index++) {
+	for (index = 0; index < hcount; index++) {
 		header = &headers[index];
 
 		err = http_headers_add(&object->headers, header->name, header->name_len, header->value, header->value_len);
 
-		if (code != KADERR_SUCCESS) {
+		if (err != KADERR_SUCCESS) {
 			goto end;
 		}
 	}
