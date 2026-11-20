@@ -9,8 +9,7 @@
 
 void __close(int* ptr);
 
-void __http_request_free(http_request_t* ptr);
-void __http_response_free(http_response_t* ptr);
+void __http_object_free(http_object_t* ptr);
 
 void __ssl_close(ssl_context_t* ptr);
 
@@ -24,8 +23,7 @@ void __transferdata_close(transferdata_t** ptr);
 
 #define __transferdata_close__ __attribute__((__cleanup__(__transferdata_close)))
 
-#define __http_request_free__ __attribute__((__cleanup__(__http_request_free)))
-#define __http_response_free__ __attribute__((__cleanup__(__http_response_free)))
+#define __http_object_free__ __attribute__((__cleanup__(__http_object_free)))
 
 #define __ssl_close__ __attribute__((__cleanup__(__ssl_close)))
 

@@ -607,7 +607,7 @@ static void capture_write_response(capture_t* const capture, const long version,
 
 }
 
-void capture_init(capture_t* const capture, const http_request_t* const request) {
+void capture_init(capture_t* const capture, const http_object_t* const request) {
 	/*
 	Prepares a directory to store the captured request/response.
 
@@ -693,7 +693,7 @@ void capture_response_body(capture_t* const capture, const char* const buffer, c
 
 }
 
-void capture_response(capture_t* const capture, const http_status_code_t status, const char* const headers, const size_t size) {
+void capture_response(capture_t* const capture, const int status, const char* const headers, const size_t size) {
 
 	char* s = NULL;
 

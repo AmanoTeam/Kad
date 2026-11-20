@@ -150,12 +150,11 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 
 	transferdata_t* const data = (transferdata_t*) userdata;
 
-	http_response_t response __http_response_free__ = {0};
+	http_object_t response __http_object_free__ = {0};
 
 	int status = 0;
 
 	const char* http_version = NULL;
-	const char* message = NULL;
 
 	const http_header_t* header = NULL;
 	const http_header_t* item = NULL;
@@ -185,9 +184,9 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 	data->buffer.slength = slength;
 
 	if (data->buffer.slength > strlen(CRLFCRLF) && memcmp(data->buffer.s + (data->buffer.slength - strlen(CRLFCRLF)), CRLFCRLF, strlen(CRLFCRLF)) == 0) {
-		http_response_init(&response);
+		http_object_init(&response, HTTP_RESPONSE);
 
-		code = http_response_parse(&response, data->buffer.s, data->buffer.slength);
+		code = http_object_parse(&response, data->buffer.s, data->buffer.slength);
 
 		if (code != KADERR_SUCCESS) {
 			status = -1;
@@ -199,13 +198,8 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		#endif
 
 		http_version = http_version_stringify(HTTP11);
-		message = http_status_stringify(response.status);
 
-		if (message == NULL) {
-			message = "Unknown";
-		}
-
-		line = curl_maprintf("%s%s%s %i %s%s", PROTOCOL_NAME, SLASH, http_version, (int) response.status, message, CRLF);
+		line = curl_maprintf("%s%s%s %i %s", PROTOCOL_NAME, SLASH, http_version, (int) response.status, CRLF);
 
 		if (line == NULL) {
 			status = -1;
@@ -232,7 +226,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		   Connection header is stripped below, so it is set explicitly here.
 		   A websocket upgrade keeps the connection alive instead */
 
-		if (response.status == SWITCHING_PROTOCOLS) {
+		if (response.status == 101) {
 			if (client_write(data, "Connection: upgrade\r\n", 21) != 0) {
 				status = -1;
 				goto end;
@@ -316,7 +310,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		/* the request is no longer needed once its body has been fully forwarded */
 
 		if (data->remaining == 0) {
-			http_request_free(&data->request);
+			http_object_free(&data->request);
 		}
 	}
 

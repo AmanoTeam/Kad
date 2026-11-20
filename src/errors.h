@@ -29,7 +29,7 @@
 
 #define KADERR_HTTP_HEADERS_TOO_BIG -19 /* HTTP headers exceeded max allowed size */
 #define KADERR_HTTP_INCOMPLETE -20 /* The HTTP message is still incomplete */
-#define KADERR_HTTP_MALFORMED_REQUEST -21 /* Malformed HTTP request */
+#define KADERR_HTTP_MALFORMED -21 /* Malformed HTTP request/response */
 #define KADERR_HTTP_UNKNOWN_METHOD -22 /* Unknown HTTP method */
 #define KADERR_HTTP_UNSUPPORTED_VERSION -23 /* Unsupported HTTP version */
 

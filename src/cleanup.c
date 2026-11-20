@@ -20,12 +20,8 @@ void __close(int* ptr) {
 	evutil_closesocket(*ptr);
 }
 
-void __http_request_free(http_request_t* ptr) {
-	http_request_free(ptr);
-}
-
-void __http_response_free(http_response_t* ptr) {
-	http_response_free(ptr);
+void __http_object_free(http_object_t* ptr) {
+	http_object_free(ptr);
 }
 
 void __ssl_close(ssl_context_t* ptr) {
@@ -57,7 +53,7 @@ void transferdata_close(transferdata_t* const data) {
 		evutil_closesocket(data->fd);
 	}
 
-	http_request_free(&data->request);
+	http_object_free(&data->request);
 	buffer_free(&data->buffer);
 	buffer_free(&data->in);
 	buffer_free(&data->out);

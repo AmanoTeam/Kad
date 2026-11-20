@@ -1868,7 +1868,19 @@ static int client_start_transfer(transferdata_t* const data) {
 		data->headers = tmp;
 	}
 
-	if (data->request.method == POST || data->request.method == PUT) {
+	header = http_headers_get(&data->request.headers, "Transfer-Encoding");
+
+	status = (header != NULL && strcmp(header->value, "chunked") == 0);
+
+	if (!status) {
+		header = http_headers_get(&data->request.headers, "Content-Length");
+
+		if (header != NULL) {
+			content_length = strtoull(header->value, NULL, 10);
+		}
+	}
+
+	if (data->request.body.size > 0 || content_length > 0 || status || data->request_size >= MAX_HTTP_HEADERS_SIZE) {
 		header = http_headers_get(&data->request.headers, "Expect");
 
 		if (header == NULL) {
@@ -1921,18 +1933,6 @@ static int client_start_transfer(transferdata_t* const data) {
 		}
 	}
 
-	header = http_headers_get(&data->request.headers, "Transfer-Encoding");
-
-	status = (header != NULL && strcmp(header->value, "chunked") == 0);
-
-	if (!status) {
-		header = http_headers_get(&data->request.headers, "Content-Length");
-
-		if (header != NULL) {
-			content_length = strtoull(header->value, NULL, 10);
-		}
-	}
-
 	if (data->request.body.size > 0 || content_length > 0 || status || data->request_size >= MAX_HTTP_HEADERS_SIZE) {
 		if (curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback) != CURLE_OK) {
 			err = KADERR_CURL_SETOPT_FAILURE;
@@ -1968,6 +1968,14 @@ static int client_start_transfer(transferdata_t* const data) {
 			break;
 		}
 		default: {
+			if (data->request.body.size > 0 || content_length > 0 || status || data->request_size >= MAX_HTTP_HEADERS_SIZE) {
+				value = curl_easy_setopt(curl, CURLOPT_POST, 1L);
+
+				if (value != CURLE_OK) {
+					break;
+				}
+			}
+
 			name = http_method_stringify(data->request.method);
 			value = curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, name);
 			break;
@@ -2060,9 +2068,9 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 
 	parse_size = (data->in.slength > MAX_HTTP_HEADERS_SIZE) ? MAX_HTTP_HEADERS_SIZE : data->in.slength;
 
-	http_request_init(&data->request);
+	http_object_init(&data->request, HTTP_REQUEST);
 
-	code = http_request_parse(&data->request, data->in.s, parse_size);
+	code = http_object_parse(&data->request, data->in.s, parse_size);
 
 	if (code == KADERR_HTTP_INCOMPLETE && parse_size < (size_t) MAX_HTTP_HEADERS_SIZE) {
 		/* the headers are still incomplete; keep buffering */
@@ -2120,7 +2128,7 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 		data->hostname = data->request.uri;
 		data->request.uri = NULL;
 
-		http_request_free(&data->request);
+		http_object_free(&data->request);
 
 		if (client_write(data, "HTTP/1.0 200 OK\r\n\r\n", 19) != 0) {
 			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SOCKET_SEND_FAILURE));

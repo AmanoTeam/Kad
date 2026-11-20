@@ -42,7 +42,7 @@ typedef enum ClientState client_state_t;
 
 struct transferdata {
 	ssl_context_t context;
-	http_request_t request;
+	http_object_t request;
 	struct curl_slist* headers;
 	CURL* curl;
 #if defined(KAD_CAPTURE)
