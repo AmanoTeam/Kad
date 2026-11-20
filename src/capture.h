@@ -30,7 +30,7 @@ struct capture {
 
 typedef struct capture capture_t;
 
-void capture_init(capture_t* const capture, const http_request_t* const request);
+void capture_init(capture_t* const capture, const http_object_t* const request);
 void capture_request_headers(capture_t* const capture, const char* const buffer, const size_t size);
 void capture_request_body(capture_t* const capture, const char* const buffer, const size_t size);
 void capture_response_body(capture_t* const capture, const char* const buffer, const size_t size);

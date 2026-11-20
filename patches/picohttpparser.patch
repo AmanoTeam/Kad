@@ -1,0 +1,72 @@
+diff --git a/picohttpparser.c b/picohttpparser.c
+index c94753d..b3a3dd2 100644
+--- a/picohttpparser.c
++++ b/picohttpparser.c
+@@ -285,10 +285,10 @@ static const char *parse_token(const char *buf, const char *buf_end, const char
+ }
+ 
+ /* returned pointer is always within [buf, buf_end), or null */
+-static const char *parse_http_version(const char *buf, const char *buf_end, int *minor_version, int *ret)
++static const char *parse_http_version(const char *buf, const char *buf_end, int *minor_version, int allow_http2, int *ret)
+ {
+-    /* we want at least [HTTP/1.<two chars>] to try to parse */
+-    if (buf_end - buf < 9) {
++    /* we want at least [HTTP/] plus the major version digit to try to parse */
++    if (buf_end - buf < 6) {
+         *ret = -2;
+         return NULL;
+     }
+@@ -297,9 +297,30 @@ static const char *parse_http_version(const char *buf, const char *buf_end, int
+     EXPECT_CHAR_NO_CHECK('T');
+     EXPECT_CHAR_NO_CHECK('P');
+     EXPECT_CHAR_NO_CHECK('/');
+-    EXPECT_CHAR_NO_CHECK('1');
+-    EXPECT_CHAR_NO_CHECK('.');
+-    PARSE_INT(minor_version, 1, '0', '9');
++
++    int major = 0;
++    PARSE_INT(&major, 1, '1', '3');
++
++    if (major == 1) {
++        /* need ".<digit>" plus at least one more char (space or CR) = 3 chars minimum */
++        if (buf_end - buf < 3) {
++            *ret = -2;
++            return NULL;
++        }
++        EXPECT_CHAR_NO_CHECK('.');
++        PARSE_INT(minor_version, 1, '0', '1');
++    } else {
++        if (!allow_http2) {
++            *ret = -1;
++            return NULL;
++        }
++        /* for HTTP/2 and HTTP/3, need at least one more char after the digit (space or CR) */
++        if (buf_end - buf < 1) {
++            *ret = -2;
++            return NULL;
++        }
++        *minor_version = major;
++    }
+     return buf;
+ }
+ 
+@@ -390,7 +411,7 @@ static const char *parse_request(const char *buf, const char *buf_end, const cha
+         *ret = -1;
+         return NULL;
+     }
+-    if ((buf = parse_http_version(buf, buf_end, minor_version, ret)) == NULL) {
++    if ((buf = parse_http_version(buf, buf_end, minor_version, 0, ret)) == NULL) {
+         return NULL;
+     }
+     if (*buf == '\015') {
+@@ -437,8 +458,8 @@ int phr_parse_request(const char *buf_start, size_t len, const char **method, si
+ static const char *parse_response(const char *buf, const char *buf_end, int *minor_version, int *status, const char **msg,
+                                   size_t *msg_len, struct phr_header *headers, size_t *num_headers, size_t max_headers, int *ret)
+ {
+-    /* parse "HTTP/1.x" */
+-    if ((buf = parse_http_version(buf, buf_end, minor_version, ret)) == NULL) {
++    /* parse "HTTP/1.x", "HTTP/2" or "HTTP/3" */
++    if ((buf = parse_http_version(buf, buf_end, minor_version, 1, ret)) == NULL) {
+         return NULL;
+     }
+     /* skip space */

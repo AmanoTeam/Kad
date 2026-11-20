@@ -49,8 +49,8 @@ const char* strkaderr(const int code) {
 			return "HTTP headers exceeded max allowed size";
 		case KADERR_HTTP_INCOMPLETE:
 			return "The HTTP message is still incomplete";
-		case KADERR_HTTP_MALFORMED_REQUEST:
-			return "Malformed HTTP request";
+		case KADERR_HTTP_MALFORMED:
+			return "Malformed HTTP request/response";
 		case KADERR_HTTP_UNKNOWN_METHOD:
 			return "Unknown HTTP method";
 		case KADERR_HTTP_UNSUPPORTED_VERSION:

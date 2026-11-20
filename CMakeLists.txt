@@ -352,6 +352,20 @@ if (NOT EXISTS "${CARES_SOURCE_DIRECTORY}/.patched")
 	file(WRITE "${CARES_SOURCE_DIRECTORY}/.patched" "")
 endif()
 
+if (NOT EXISTS "${PICOHTTPPARSER_SOURCE_DIRECTORY}/.patched")
+	message("-- Patching picohttpparser")
+
+	execute_process(
+		COMMAND patch
+		--directory=${PICOHTTPPARSER_SOURCE_DIRECTORY}
+		--strip=1
+		--input=${CMAKE_CURRENT_SOURCE_DIR}/patches/picohttpparser.patch
+		COMMAND_ERROR_IS_FATAL ANY
+	)
+
+	file(WRITE "${PICOHTTPPARSER_SOURCE_DIRECTORY}/.patched" "")
+endif()
+
 file(LOCK "${CMAKE_CURRENT_SOURCE_DIR}/lock" RELEASE)
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
