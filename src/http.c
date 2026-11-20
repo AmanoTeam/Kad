@@ -205,7 +205,7 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 
 	err = http_headers_reserve(&object->headers, hcount);
 
-	if (code != KADERR_SUCCESS) {
+	if (err != KADERR_SUCCESS) {
 		goto end;
 	}
 

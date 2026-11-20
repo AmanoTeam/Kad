@@ -226,7 +226,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		   Connection header is stripped below, so it is set explicitly here.
 		   A websocket upgrade keeps the connection alive instead */
 
-		if (response.status == SWITCHING_PROTOCOLS) {
+		if (response.status == 101) {
 			if (client_write(data, "Connection: upgrade\r\n", 21) != 0) {
 				status = -1;
 				goto end;
