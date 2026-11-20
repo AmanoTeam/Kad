@@ -71,9 +71,9 @@ parser.add_argument(
 
 parser.add_argument(
 	"--proxy",
-	metavar = "URL",
+	metavar = "URL|FILE",
 	required = False,
-	help = "Forward all requests through this proxy server."
+	help = "Forward all requests through this proxy server. When FILE is given, it must contain one proxy per line and a random proxy is picked for each request."
 )
 
 parser.add_argument(

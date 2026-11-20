@@ -6,10 +6,12 @@
 
 #if defined(_WIN32)
 	#include <windows.h>
+	#include <sys/types.h>
 #endif
 
 #if !defined(_WIN32)
 	#include <stdio.h>
+	#include <sys/types.h>
 #endif
 
 #define FSTREAM_SUCCESS (0)
@@ -37,6 +39,7 @@ struct FStream {
 typedef struct FStream fstream_t;
 
 fstream_t* fstream_open(const char* const filename, const fstream_mode_t mode);
+ssize_t fstream_read(fstream_t* const stream, char* const buffer, const size_t size);
 int fstream_write(fstream_t* const stream, const char* const buffer, const size_t size);
 int64_t fstream_size(fstream_t* const stream);
 int fstream_close(fstream_t* const stream);

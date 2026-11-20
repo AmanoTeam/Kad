@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <errno.h>
+#include <time.h>
 
 #if defined(_WIN32)
 	#include <winsock2.h>
@@ -47,6 +48,7 @@
 #include "fstream.h"
 #include "getexec.h"
 #include "sep.h"
+#include "strsplit.h"
 
 #define KAD_DEFAULT_IMPERSONATE_TARGET "chrome116"
 
@@ -875,6 +877,10 @@ static char target_platform[16] = {0};
 
 static char proxy_url[4096] = {0};
 
+static char** proxy_list = NULL;
+
+static size_t proxy_list_size = 0;
+
 static char doh_url[4096] = {0};
 
 static char dns_servers[512] = {0};
@@ -882,6 +888,146 @@ static char dns_servers[512] = {0};
 static int retry_limit = KAD_RETRY_MIN;
 
 static int ssl_verify = 1;
+
+static void proxy_list_free(void) {
+
+	size_t index = 0;
+
+	for (index = 0; index < proxy_list_size; index++) {
+		free(proxy_list[index]);
+	}
+
+	free(proxy_list);
+
+	proxy_list = NULL;
+	proxy_list_size = 0;
+
+}
+
+static int proxy_list_load(const char* const path) {
+	/*
+	Loads a list of proxies, one per line, from a file.
+
+	Returns (0) on success, (-1) when the file cannot be opened, (-2) when
+	the file was opened but no proxy could be loaded from it.
+	*/
+
+	fstream_t* stream = NULL;
+
+	char* content = NULL;
+
+	strsplit_t split = {0};
+	strsplit_part_t part = {0};
+
+	char** items = NULL;
+	char* item = NULL;
+
+	int64_t file_size = 0;
+
+	size_t offset = 0;
+
+	stream = fstream_open(path, FSTREAM_READ);
+
+	if (stream == NULL) {
+		return -1;
+	}
+
+	file_size = fstream_size(stream);
+
+	if (file_size <= 0) {
+		fstream_close(stream);
+
+		return -2;
+	}
+
+	content = malloc((size_t) file_size + 1);
+
+	if (content == NULL) {
+		fstream_close(stream);
+
+		return -2;
+	}
+
+	while (offset < (size_t) file_size) {
+		const ssize_t size = fstream_read(stream, content + offset, (size_t) file_size - offset);
+
+		if (size <= 0) {
+			break;
+		}
+
+		offset += (size_t) size;
+	}
+
+	fstream_close(stream);
+
+	if (offset == 0) {
+		free(content);
+
+		return -2;
+	}
+
+	content[offset] = '\0';
+
+	strsplit_init(&split, &part, content, "\n");
+
+	while (strsplit_next(&split, &part) != NULL) {
+		if (part.size == 0) {
+			continue;
+		}
+
+		item = malloc(part.size + 1);
+
+		if (item == NULL) {
+			free(content);
+
+			proxy_list_free();
+
+			return -2;
+		}
+
+		memcpy(item, part.begin, part.size);
+		item[part.size] = '\0';
+
+		items = realloc(proxy_list, (proxy_list_size + 1) * sizeof(*items));
+
+		if (items == NULL) {
+			free(item);
+			free(content);
+
+			proxy_list_free();
+
+			return -2;
+		}
+
+		proxy_list = items;
+		proxy_list[proxy_list_size++] = item;
+	}
+
+	free(content);
+
+	if (proxy_list_size == 0) {
+		return -2;
+	}
+
+	return 0;
+
+}
+
+static const char* proxy_select(void) {
+	/*
+	Picks a proxy for a single request. When a proxy list was loaded, a
+	random entry is returned, otherwise the single --proxy value is used.
+
+	Returns a null pointer when no proxy is configured.
+	*/
+
+	if (proxy_list_size == 0) {
+		return (*proxy_url != '\0') ? proxy_url : NULL;
+	}
+
+	return proxy_list[(size_t) rand() % proxy_list_size];
+
+}
 
 static int load_ssl_certificates(const char* const cacert) {
 	/*
@@ -1610,6 +1756,8 @@ static int client_start_transfer(transferdata_t* const data) {
 
 	const char* name = NULL;
 
+	const char* proxy = NULL;
+
 	static char curl_error_message[CURL_ERROR_SIZE] = {0};
 
 	CURL* curl __curl_easy_cleanup__ = NULL;
@@ -1643,7 +1791,9 @@ static int client_start_transfer(transferdata_t* const data) {
 		goto end;
 	}
 
-	if (*proxy_url != '\0' && curl_easy_setopt(curl, CURLOPT_PROXY, proxy_url) != CURLE_OK) {
+	proxy = proxy_select();
+
+	if (proxy != NULL && curl_easy_setopt(curl, CURLOPT_PROXY, proxy) != CURLE_OK) {
 		err = KADERR_CURL_SETOPT_FAILURE;
 		goto end;
 	}
@@ -3080,6 +3230,7 @@ int kad_main(int argc, argv_t** argv) {
 
 	int code = 0;
 	int err = 0;
+	int proxy_status = 0;
 
 	size_t size = 0;
 
@@ -3117,6 +3268,8 @@ int kad_main(int argc, argv_t** argv) {
 	}
 	
 	curl_global_init(CURL_GLOBAL_ALL);
+
+	srand((unsigned int) time(NULL));
 
 	curl_multi = curl_multi_init();
 
@@ -3289,7 +3442,24 @@ int kad_main(int argc, argv_t** argv) {
 				return EXIT_FAILURE;
 			}
 
+			proxy_list_free();
+			proxy_url[0] = '\0';
+
 			strcpy(proxy_url, argument->value);
+
+			if (strstr(proxy_url, "://") == NULL) {
+				proxy_status = proxy_list_load(proxy_url);
+
+				if (proxy_status != 0 && (proxy_status == -2 || strchr(proxy_url, '/') != NULL || strchr(proxy_url, '\\') != NULL)) {
+					loggln(LOG_ERROR, "[error] could not read proxy list from file: %s", proxy_url);
+
+					proxy_list_free();
+
+					argparse_free(&argparse);
+
+					return EXIT_FAILURE;
+				}
+			}
 		} else if (strcmp(argument->key, "doh-url") == 0) {
 			if (argument->value == NULL) {
 				loggln(LOG_ERROR, "[error] %s: --%s", strkaderr(KADERR_ARGPARSE_ARGUMENT_VALUE_MISSING), argument->key);
@@ -3581,6 +3751,8 @@ int kad_main(int argc, argv_t** argv) {
 	event_free(curl_timeout_event);
 	curl_multi_cleanup(curl_multi);
 	event_base_free(event_base);
+
+	proxy_list_free();
 
 	curl_global_cleanup();
 

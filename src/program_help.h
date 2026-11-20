@@ -6,7 +6,7 @@ This file is auto-generated. Use the tool at ../tools/program_help.h.py to regen
 #define PROGRAM_HELP_H
 
 #define PROGRAM_HELP \
-	"usage: kad [-h] [-v] [-k] [--host HOST] [--port PORT] [--target TARGET] [--platform PLATFORM] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE] [--dns-servers LIST] [--retry COUNT]\n"\
+	"usage: kad [-h] [-v] [-k] [--host HOST] [--port PORT] [--target TARGET] [--platform PLATFORM] [--loglevel LOGLEVEL] [--proxy URL|FILE] [--doh-url URL] [--cacert FILE] [--dns-servers LIST] [--retry COUNT]\n"\
 	"\n"\
 	"A simple HTTP proxy server that forwards all requests through curl-impersonate.\n"\
 	"\n"\
@@ -19,7 +19,7 @@ This file is auto-generated. Use the tool at ../tools/program_help.h.py to regen
 	"  --target TARGET      Impersonate this target. [default: chrome116]\n"\
 	"  --platform PLATFORM  Impersonate this platform when the target is a generic Chrome, Edge or Firefox target (e.g. chrome131). Valid platforms: 'windows', 'macos', 'linux', 'android'.\n"\
 	"  --loglevel LOGLEVEL  Set output verbosity. Valid levels: 'quiet', 'standard', 'warning', 'error', 'info', 'verbose'. [default: verbose]\n"\
-	"  --proxy URL          Forward all requests through this proxy server.\n"\
+	"  --proxy URL|FILE     Forward all requests through this proxy server. When FILE is given, it must contain one proxy per line and a random proxy is picked for each request.\n"\
 	"  --doh-url URL        Use this DoH server for hostname resolution.\n"\
 	"  --cacert FILE        Overwrite the path to the CA certificate bundle to use.\n"\
 	"  --dns-servers LIST   Comma-separated list of DNS servers to use. [default: the embedded recursive resolver, falling back to 8.8.8.8,8.8.4.4]\n"\

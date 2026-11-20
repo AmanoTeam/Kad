@@ -169,6 +169,54 @@ fstream_t* fstream_open(const char* const filename, const fstream_mode_t mode) {
 
 }
 
+ssize_t fstream_read(fstream_t* const stream, char* const buffer, const size_t size) {
+	/*
+	Reads a block of data.
+
+	Returns (>=1) on success, (0) on EOF, (-1) on error.
+	*/
+
+	#if defined(_WIN32)
+		DWORD rsize = 0;
+		BOOL status = FALSE;
+	#endif
+
+	#if !defined(_WIN32)
+		size_t rsize = 0;
+	#endif
+
+	if (stream->mode == FSTREAM_WRITE) {
+		return FSTREAM_ERROR;
+	}
+
+	#if defined(_WIN32)
+		status = ReadFile(stream->stream, buffer, (DWORD) size, &rsize, NULL);
+
+		if (!status) {
+			return FSTREAM_ERROR;
+		}
+
+		if (rsize > 0) {
+			return (ssize_t) rsize;
+		}
+
+		return FSTREAM_EOF;
+	#else
+		rsize = fread(buffer, sizeof(*buffer), size, stream->stream);
+
+		if (rsize == 0) {
+			if (ferror(stream->stream) != 0) {
+				return FSTREAM_ERROR;
+			}
+
+			return FSTREAM_EOF;
+		}
+
+		return (ssize_t) rsize;
+	#endif
+
+}
+
 int fstream_write(fstream_t* const stream, const char* const buffer, const size_t size) {
 	/*
 	Writes a block of data.

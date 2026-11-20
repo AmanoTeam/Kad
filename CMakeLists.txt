@@ -67,6 +67,7 @@ set(
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/argparse.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/logging.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/fstream.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/strsplit.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/getexec.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/absrel.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/unboundshim.c"

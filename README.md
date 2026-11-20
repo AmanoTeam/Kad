@@ -31,7 +31,7 @@ Available options:
 
 ```
 $ kad --help
-usage: kad [-h] [-v] [-k] [--host HOST] [--port PORT] [--target TARGET] [--platform PLATFORM] [--loglevel LOGLEVEL] [--proxy URL] [--doh-url URL] [--cacert FILE] [--dns-servers LIST] [--retry COUNT]
+usage: kad [-h] [-v] [-k] [--host HOST] [--port PORT] [--target TARGET] [--platform PLATFORM] [--loglevel LOGLEVEL] [--proxy URL|FILE] [--doh-url URL] [--cacert FILE] [--dns-servers LIST] [--retry COUNT]
 
 A simple HTTP proxy server that forwards all requests through curl-impersonate.
 
@@ -44,7 +44,7 @@ options:
   --target TARGET      Impersonate this target. [default: chrome116]
   --platform PLATFORM  Impersonate this platform when the target is a generic Chrome, Edge or Firefox target (e.g. chrome131). Valid platforms: 'windows', 'macos', 'linux', 'android'.
   --loglevel LOGLEVEL  Set output verbosity. Valid levels: 'quiet', 'standard', 'warning', 'error', 'info', 'verbose'. [default: verbose]
-  --proxy URL          Forward all requests through this proxy server.
+  --proxy URL|FILE     Forward all requests through this proxy server. When FILE is given, it must contain one proxy per line and a random proxy is picked for each request.
   --doh-url URL        Use this DoH server for hostname resolution.
   --cacert FILE        Overwrite the path to the CA certificate bundle to use.
   --dns-servers LIST   Comma-separated list of DNS servers to use. [default: the embedded recursive resolver, falling back to 8.8.8.8,8.8.4.4]
@@ -61,6 +61,18 @@ Embedded resolver listening on 127.0.0.1:38645
 Starting server at http://127.0.0.1:4000 (pid = 478)
 
 ```
+
+To forward requests through a rotating list of upstream proxies, put one proxy per line in a file and pass its path to `--proxy`:
+
+```
+$ cat proxies.txt
+http://127.0.0.1:8080
+socks5://127.0.0.1:9050
+
+$ kad --proxy=proxies.txt
+```
+
+Kad picks a random proxy from the list for every request.
 
 ## Examples
 
