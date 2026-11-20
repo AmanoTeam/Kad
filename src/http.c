@@ -169,7 +169,7 @@ int http_object_parse(http_object_t* const object, const char* const buffer, con
 	const struct phr_header* header = NULL;
 	struct phr_header headers[MAX_HTTP_HEADERS_COUNT];
 
-	size_t index = 0;
+	size_t index = MAX_HTTP_HEADERS_COUNT;
 	
 	int status_code = 0;
 	int http_version = 0;
