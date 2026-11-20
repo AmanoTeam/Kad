@@ -23,7 +23,7 @@ struct capture {
 	int request_headers_done;
 	char* response_headers;
 	size_t response_headers_size;
-	http_status_code_t status;
+	int status;
 	int has_response;
 	time_t response_time;
 };
@@ -34,7 +34,7 @@ void capture_init(capture_t* const capture, const http_object_t* const request);
 void capture_request_headers(capture_t* const capture, const char* const buffer, const size_t size);
 void capture_request_body(capture_t* const capture, const char* const buffer, const size_t size);
 void capture_response_body(capture_t* const capture, const char* const buffer, const size_t size);
-void capture_response(capture_t* const capture, const http_status_code_t status, const char* const headers, const size_t size);
+void capture_response(capture_t* const capture, const int status, const char* const headers, const size_t size);
 void capture_end(capture_t* const capture, CURL* const curl);
 void capture_close(capture_t* const capture);
 
