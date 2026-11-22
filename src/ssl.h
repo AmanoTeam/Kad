@@ -20,8 +20,8 @@ typedef struct SSLContext ssl_context_t;
 
 int ssl_init(ssl_context_t* context, int* fd);
 int ssl_accept(ssl_context_t* context, int* wait);
-ssize_t ssl_send(ssl_context_t* context, const char* const buffer, const size_t size, int* wait);
-ssize_t ssl_recv(ssl_context_t* context, char* const buffer, const size_t size, int* wait);
+ssize_t write_secure_chunk(ssl_context_t* context, const char* const buffer, const size_t size, int* wait);
+ssize_t read_secure_chunk(ssl_context_t* context, char* const buffer, const size_t size, int* wait);
 int ssl_close(ssl_context_t* context);
 
 #endif

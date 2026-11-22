@@ -1035,7 +1035,7 @@ static int socket_wouldblock(void) {
 
 }
 
-static ssize_t socket_read(const int fd, char* const buffer, const size_t size, int* const wait) {
+static ssize_t read_insecure_chunk(const int fd, char* const buffer, const size_t size, int* const wait) {
 
 	ssize_t rsize = -1;
 
@@ -1068,7 +1068,7 @@ static ssize_t socket_read(const int fd, char* const buffer, const size_t size, 
 
 }
 
-static ssize_t socket_write(const int fd, const char* const buffer, const size_t size, int* const wait) {
+static ssize_t write_insecure_chunk(const int fd, const char* const buffer, const size_t size, int* const wait) {
 
 	size_t offset = 0;
 
@@ -1280,8 +1280,8 @@ static int client_flush(transferdata_t* const data) {
 		wait = 0;
 
 		size = ((data->flags & TD_SECURE) != 0)
-			? ssl_send(&data->context, data->out.s + offset, data->out.slength - offset, &wait)
-			: socket_write(data->fd, data->out.s + offset, data->out.slength - offset, &wait);
+			? write_secure_chunk(&data->context, data->out.s + offset, data->out.slength - offset, &wait)
+			: write_insecure_chunk(data->fd, data->out.s + offset, data->out.slength - offset, &wait);
 
 		if (size == -1) {
 			return -1;
@@ -2651,8 +2651,8 @@ static int client_read(transferdata_t* const data) {
 		   the connection, as the TLS layer is gone by then */
 
 		size = ((data->flags & TD_SECURE) != 0 && (data->flags & TD_FIN) == 0)
-			? ssl_recv(&data->context, chunk, sizeof(chunk), &wait)
-			: socket_read(data->fd, chunk, sizeof(chunk), &wait);
+			? read_secure_chunk(&data->context, chunk, sizeof(chunk), &wait)
+			: read_insecure_chunk(data->fd, chunk, sizeof(chunk), &wait);
 
 		if (size == -2) {
 			/* the client orderly closed the connection */

@@ -12,84 +12,75 @@
 #include "ssl.h"
 #include "certificate.h"
 
-/* every tunneled connection shares the same SSL context, so the certificate
-   and the private key are parsed only once and TLS sessions can be resumed
-   instead of performing a full handshake for every single tunnel; this keeps
-   the per-connection cost of the single-threaded event loop minimal */
+static SSL_CTX* server_context = NULL;
 
-static SSL_CTX* ssl_server_context(void) {
+static SSL_CTX* create_server_context(void) {
 
-	static SSL_CTX* shared = NULL;
+	int status = 1;
 
-	if (shared != NULL) {
-		return shared;
+	if (server_context != NULL) {
+		goto end;
 	}
 
-	shared = SSL_CTX_new(TLS_server_method());
+	server_context = SSL_CTX_new(TLS_server_method());
 
-	if (shared == NULL) {
-		return NULL;
+	if (server_context == NULL) {
+		goto end;
 	}
 
-	/* the connections are event-driven on non-blocking sockets, so the
-	   handshakes and the transfers may need to be resumed piecemeal */
-	SSL_CTX_set_mode(shared, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+	SSL_CTX_set_mode(server_context, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+	SSL_CTX_set_session_cache_mode(server_context, SSL_SESS_CACHE_SERVER);
 
-	/* let the clients resume their TLS sessions across tunnels */
-	SSL_CTX_set_session_cache_mode(shared, SSL_SESS_CACHE_SERVER);
+	status = SSL_CTX_use_certificate_ASN1(server_context, sizeof(CERTIFICATE), CERTIFICATE);
 
-	if (SSL_CTX_use_certificate_ASN1(shared, sizeof(CERTIFICATE), CERTIFICATE) != 1) {
-		SSL_CTX_free(shared);
-
-		shared = NULL;
-
-		return NULL;
+	if (status != 1) {
+		goto end;
 	}
 
-	if (SSL_CTX_use_RSAPrivateKey_ASN1(shared, RSA_PRIVATE_KEY, sizeof(RSA_PRIVATE_KEY)) != 1) {
-		SSL_CTX_free(shared);
+	status = SSL_CTX_use_RSAPrivateKey_ASN1(server_context, RSA_PRIVATE_KEY, sizeof(RSA_PRIVATE_KEY));
 
-		shared = NULL;
+	end:;
 
-		return NULL;
+	if (status != 1) {
+		SSL_CTX_free(server_context);
+		server_context = NULL;
 	}
 
-	return shared;
+	return server_context;
 
 }
 
 int ssl_init(ssl_context_t* context, int* fd) {
 
-	int status = -1;
+	int err = 0;
 
-	SSL_CTX* ctx = NULL;
-	SSL* ssl = NULL;
-
-	ctx = ssl_server_context();
+	SSL_CTX* ctx = create_server_context();
 
 	if (ctx == NULL) {
+		err = -1;
 		goto end;
 	}
 
-	ssl = SSL_new(ctx);
+	context->ssl = SSL_new(ctx);
 
-	if (ssl == NULL) {
+	if (context->ssl == NULL) {
+		err = -1;
 		goto end;
 	}
 
-	SSL_set_fd(ssl, *fd);
-
-	context->ssl = ssl;
-
-	status = 0;
+	if (SSL_set_fd(context->ssl, *fd) != 1) {
+		err = -1;
+		goto end;
+	}
 
 	end:;
 
-	if (status != 0) {
-		SSL_free(ssl);
+	if (err != 0) {
+		SSL_free(context->ssl);
+		context->ssl = NULL;
 	}
 
-	return status;
+	return err;
 
 }
 
@@ -128,118 +119,76 @@ int ssl_accept(ssl_context_t* context, int* wait) {
 
 }
 
-ssize_t ssl_send(ssl_context_t* context, const char* const buffer, const size_t size, int* wait) {
-
-	SSL* const ssl = context->ssl;
+static ssize_t secure_transfer(SSL* const ssl, char* const buffer, const size_t size, int* wait, const int writing) {
 
 	size_t offset = 0;
 
-	int wsize = 0;
+	int status = 0;
 	int error = 0;
-
-	if (ssl == NULL) {
-		return -1;
-	}
 
 	*wait = 0;
 
 	while (offset < size) {
-		wsize = SSL_write(ssl, buffer + offset, (int) (size - offset));
+		status = writing
+			? SSL_write(ssl, buffer + offset, (int) (size - offset))
+			: SSL_read(ssl, buffer + offset, (int) (size - offset));
 
-		if (wsize > 0) {
-			offset += (size_t) wsize;
-		} else {
-			error = SSL_get_error(ssl, wsize);
+		if (status > 0) {
+			offset += (size_t) status;
+			continue;
+		}
 
-			switch (error) {
-				case SSL_ERROR_WANT_WRITE: {
-					*wait = SSL_WAIT_WRITE;
+		error = SSL_get_error(ssl, status);
 
-					break;
-				}
-				case SSL_ERROR_WANT_READ: {
-					*wait = SSL_WAIT_READ;
-
-					break;
-				}
+		switch (error) {
+			case SSL_ERROR_WANT_READ: {
+				*wait = SSL_WAIT_READ;
+				break;
+			}
+			case SSL_ERROR_WANT_WRITE: {
+				*wait = SSL_WAIT_WRITE;
+				break;
+			}
+			case SSL_ERROR_ZERO_RETURN: {
+				return writing ? -1 : -2;
+			}
 #if !defined(_WIN32)
-				case SSL_ERROR_SYSCALL: {
-					if (errno != EINTR) {
-						return -1;
-					}
-
+			case SSL_ERROR_SYSCALL: {
+				if (errno == EINTR) {
 					continue;
 				}
-#endif
-				default: {
-					return -1;
-				}
+				return writing ? -1 : -2;
 			}
-
-			return (ssize_t) offset;
+#endif
+			default: {
+				return -1;
+			}
 		}
+
+		return (ssize_t) offset;
 	}
 
 	return (ssize_t) offset;
 
 }
 
-ssize_t ssl_recv(ssl_context_t* context, char* const buffer, const size_t size, int* wait) {
+ssize_t write_secure_chunk(ssl_context_t* context, const char* const buffer, const size_t size, int* wait) {
 
-	SSL* const ssl = context->ssl;
-
-	size_t offset = 0;
-
-	int rsize = 0;
-	int error = 0;
-
-	if (ssl == NULL) {
+	if (context->ssl == NULL) {
 		return -1;
 	}
 
-	*wait = 0;
+	return secure_transfer(context->ssl, (char*) buffer, size, wait, 1);
 
-	while (offset < size) {
-		rsize = SSL_read(ssl, buffer + offset, (int) (size - offset));
+}
 
-		if (rsize > 0) {
-			offset += (size_t) rsize;
-		} else {
-			error = SSL_get_error(ssl, rsize);
+ssize_t read_secure_chunk(ssl_context_t* context, char* const buffer, const size_t size, int* wait) {
 
-			switch (error) {
-				case SSL_ERROR_WANT_READ: {
-					*wait = SSL_WAIT_READ;
-
-					break;
-				}
-				case SSL_ERROR_WANT_WRITE: {
-					*wait = SSL_WAIT_WRITE;
-
-					break;
-				}
-				case SSL_ERROR_ZERO_RETURN: {
-					return -2;
-				}
-#if !defined(_WIN32)
-				case SSL_ERROR_SYSCALL: {
-					if (errno == EINTR) {
-						continue;
-					}
-
-					return -2;
-				}
-#endif
-				default: {
-					return -1;
-				}
-			}
-
-			return (ssize_t) offset;
-		}
+	if (context->ssl == NULL) {
+		return -1;
 	}
 
-	return (ssize_t) offset;
+	return secure_transfer(context->ssl, buffer, size, wait, 0);
 
 }
 
@@ -248,13 +197,12 @@ int ssl_close(ssl_context_t* context) {
 	int status = 0;
 
 	if (context->ssl == NULL) {
-		return 0;
+		return status;
 	}
 
 	status = SSL_shutdown(context->ssl);
 
 	SSL_free(context->ssl);
-
 	context->ssl = NULL;
 
 	return status;
