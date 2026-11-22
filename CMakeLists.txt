@@ -588,7 +588,8 @@ if (KAD_LIBRARY)
 		target_link_options(
 			kad
 			PRIVATE
-			"-Xlinker --version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/version_script.map"
+			"-Xlinker"
+			"--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/version_script.map"
 		)
 	endif()
 	
@@ -689,26 +690,35 @@ set(UNBOUND_LIBRARY "${UNBOUND_BUILD_DIRECTORY}/.libs/${CMAKE_STATIC_LIBRARY_PRE
 
 execute_process(
 	COMMAND "${CMAKE_C_COMPILER}" -dumpmachine
-	OUTPUT_VARIABLE UNBOUND_HOST_TRIPLET
+	OUTPUT_VARIABLE CMAKE_HOST
 	OUTPUT_STRIP_TRAILING_WHITESPACE
 	COMMAND_ERROR_IS_FATAL ANY
 )
+
+execute_process(
+	COMMAND cc -dumpmachine
+	OUTPUT_VARIABLE CMAKE_BUILD
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+	COMMAND_ERROR_IS_FATAL ANY
+)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Android")
+	if (ANDROID_ABI STREQUAL "armeabi-v7a")
+		set(CMAKE_HOST "arm-linux-androideabi")
+	elseif (ANDROID_ABI STREQUAL "x86")
+		set(CMAKE_HOST "i686-linux-android")
+	elseif (ANDROID_ABI STREQUAL "x86_64")
+		set(CMAKE_HOST "x86_64-linux-android")
+	else()
+		set(CMAKE_HOST "aarch64-linux-android")
+	endif()
+endif()
 
 set(UNBOUND_CC_EXTRA "")
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Android")
 	if (CMAKE_C_COMPILER_ID MATCHES "Clang")
 		set(UNBOUND_CC_EXTRA "--target=${CMAKE_C_COMPILER_TARGET} --sysroot=${CMAKE_SYSROOT}")
-	endif()
-
-	if (ANDROID_ABI STREQUAL "armeabi-v7a")
-		set(UNBOUND_HOST_TRIPLET "arm-linux-androideabi")
-	elseif (ANDROID_ABI STREQUAL "x86")
-		set(UNBOUND_HOST_TRIPLET "i686-linux-android")
-	elseif (ANDROID_ABI STREQUAL "x86_64")
-		set(UNBOUND_HOST_TRIPLET "x86_64-linux-android")
-	else()
-		set(UNBOUND_HOST_TRIPLET "aarch64-linux-android")
 	endif()
 endif()
 
@@ -718,13 +728,14 @@ else()
 	set(UNBOUND_PROBE_LIBS "-lcrypto -lstdc++")
 endif()
 
-if (NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
-	set(UNBOUND_PROBE_LIBS "${UNBOUND_PROBE_LIBS} -lpthread")
-endif()
+set(UNBOUND_PROBE_LIBS "${UNBOUND_PROBE_LIBS} -pthread")
 
 set(
 	UNBOUND_CONFIGURE_FLAGS
-	"--host=${UNBOUND_HOST_TRIPLET}"
+	"--host=${CMAKE_HOST}"
+	"--build=${CMAKE_BUILD}"
+	"--with-ssl=${UNBOUND_STAGING_DIRECTORY}/ssl"
+	"--with-libevent=${UNBOUND_STAGING_DIRECTORY}/libevent"
 	"--without-pthreads"
 	"--enable-event-api"
 	"--disable-shared"
@@ -735,73 +746,58 @@ set(
 
 file(MAKE_DIRECTORY "${UNBOUND_BUILD_DIRECTORY}")
 
-	if (WIN32)
-		set(UNBOUND_CFLAGS_EXTRA "-DWIN32_LEAN_AND_MEAN -DNOCRYPT -DNOMINMAX")
+if (WIN32)
+	set(UNBOUND_CFLAGS_EXTRA "-DWIN32_LEAN_AND_MEAN -DNOCRYPT -DNOMINMAX")
+	set(UNBOUND_EXTRA_ENV "ac_cv_header_netioapi_h=no")
+endif()
 
-		set(UNBOUND_CONFIGURE_EXTRA_ENV "ac_cv_header_netioapi_h=no")
-	endif()
+set(
+	UNBOUND_ENV
+	"CC=${CMAKE_C_COMPILER} ${UNBOUND_CC_EXTRA}"
+	"CFLAGS=${CMAKE_C_FLAGS} -O3 -fpic ${UNBOUND_CFLAGS_EXTRA}"
+	"LIBS=${UNBOUND_PROBE_LIBS}"
+	${UNBOUND_EXTRA_ENV}
+)
 
-	set(
-		UNBOUND_CONFIGURE_ENV
-		"CC=${CMAKE_C_COMPILER} ${UNBOUND_CC_EXTRA}"
-		"CFLAGS=${CMAKE_C_FLAGS} -O2 -fPIC ${UNBOUND_CFLAGS_EXTRA}"
-		"CPPFLAGS=-I${CMAKE_CURRENT_BINARY_DIR}/submodules/libevent/include"
-		"LDFLAGS=-L${UNBOUND_STAGING_DIRECTORY}/ssl/lib"
-		"LIBS=${UNBOUND_PROBE_LIBS}"
-		${UNBOUND_CONFIGURE_EXTRA_ENV}
-	)
-
-	add_custom_command(
-	OUTPUT "${UNBOUND_BUILD_DIRECTORY}/Makefile"
-	
+add_custom_command(
+	OUTPUT
+		"${UNBOUND_BUILD_DIRECTORY}/Makefile"
 	COMMAND "${CMAKE_COMMAND}" -E make_directory
 		"${UNBOUND_STAGING_DIRECTORY}/ssl/lib"
 		"${UNBOUND_STAGING_DIRECTORY}/libevent/lib"
-	
 	COMMAND "${CMAKE_COMMAND}" -E rm -f
 		"${UNBOUND_STAGING_DIRECTORY}/ssl/include"
 		"${UNBOUND_STAGING_DIRECTORY}/ssl/lib/${CMAKE_STATIC_LIBRARY_PREFIX}ssl${CMAKE_STATIC_LIBRARY_SUFFIX}"
 		"${UNBOUND_STAGING_DIRECTORY}/ssl/lib/${CMAKE_STATIC_LIBRARY_PREFIX}crypto${CMAKE_STATIC_LIBRARY_SUFFIX}"
 		"${UNBOUND_STAGING_DIRECTORY}/libevent/include"
 		"${UNBOUND_STAGING_DIRECTORY}/libevent/lib/${CMAKE_STATIC_LIBRARY_PREFIX}event${CMAKE_STATIC_LIBRARY_SUFFIX}"
-	
 	COMMAND "${CMAKE_COMMAND}" -E create_symlink
 		"${BORINGSSL_SOURCE_DIRECTORY}/include"
 		"${UNBOUND_STAGING_DIRECTORY}/ssl/include"
-	
 	COMMAND "${CMAKE_COMMAND}" -E create_symlink
 		"$<TARGET_FILE:ssl>"
 		"${UNBOUND_STAGING_DIRECTORY}/ssl/lib/${CMAKE_STATIC_LIBRARY_PREFIX}ssl${CMAKE_STATIC_LIBRARY_SUFFIX}"
-	
 	COMMAND "${CMAKE_COMMAND}" -E create_symlink
 		"$<TARGET_FILE:crypto>"
 		"${UNBOUND_STAGING_DIRECTORY}/ssl/lib/${CMAKE_STATIC_LIBRARY_PREFIX}crypto${CMAKE_STATIC_LIBRARY_SUFFIX}"
-	
 	COMMAND "${CMAKE_COMMAND}" -E create_symlink
 		"${LIBEVENT_SOURCE_DIRECTORY}/include"
 		"${UNBOUND_STAGING_DIRECTORY}/libevent/include"
-	
 	COMMAND "${CMAKE_COMMAND}" -E create_symlink
 		"$<TARGET_FILE:event_core_static>"
 		"${UNBOUND_STAGING_DIRECTORY}/libevent/lib/${CMAKE_STATIC_LIBRARY_PREFIX}event${CMAKE_STATIC_LIBRARY_SUFFIX}"
-	
-	COMMAND
-		"${CMAKE_COMMAND}" -E env
-		${UNBOUND_CONFIGURE_ENV}
-		bash "${UNBOUND_SOURCE_DIRECTORY}/configure"
-			--with-ssl=${UNBOUND_STAGING_DIRECTORY}/ssl
-			--with-libevent=${UNBOUND_STAGING_DIRECTORY}/libevent
-			${UNBOUND_CONFIGURE_FLAGS}
-	
-	WORKING_DIRECTORY "${UNBOUND_BUILD_DIRECTORY}"
-	
+	COMMAND "${CMAKE_COMMAND}" -E env
+		${UNBOUND_ENV}
+		"${UNBOUND_SOURCE_DIRECTORY}/configure"
+		${UNBOUND_CONFIGURE_FLAGS}
+	WORKING_DIRECTORY
+		"${UNBOUND_BUILD_DIRECTORY}"
 	DEPENDS
 		ssl
 		crypto
 		event_core_static
-	
-	COMMENT "-- Configuring unbound"
-	
+	COMMENT
+		"-- Configuring unbound"
 	VERBATIM
 )
 
@@ -837,59 +833,37 @@ target_link_libraries(
 if (NOT WIN32)
 	set(JEMALLOC_BUILD_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/jemalloc-build")
 
-	execute_process(
-		COMMAND "${CMAKE_C_COMPILER}" -dumpmachine
-		OUTPUT_VARIABLE JEMALLOC_HOST_TRIPLET
-		OUTPUT_STRIP_TRAILING_WHITESPACE
-		COMMAND_ERROR_IS_FATAL ANY
-	)
+	set(JEMALLOC_CC_EXTRA "")
 
 	if (CMAKE_SYSTEM_NAME STREQUAL "Android")
-		if (ANDROID_ABI STREQUAL "armeabi-v7a")
-			set(JEMALLOC_HOST_TRIPLET "arm-linux-androideabi")
-		elseif (ANDROID_ABI STREQUAL "x86")
-			set(JEMALLOC_HOST_TRIPLET "i686-linux-android")
-		elseif (ANDROID_ABI STREQUAL "x86_64")
-			set(JEMALLOC_HOST_TRIPLET "x86_64-linux-android")
-		else()
-			set(JEMALLOC_HOST_TRIPLET "aarch64-linux-android")
+		if (CMAKE_C_COMPILER_ID MATCHES "Clang")
+			set(JEMALLOC_CC_EXTRA "--target=${CMAKE_C_COMPILER_TARGET} --sysroot=${CMAKE_SYSROOT}")
 		endif()
-	endif()
-
-	if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-		set(JEMALLOC_BUILD_TRIPLET "${CMAKE_HOST_SYSTEM_PROCESSOR}-pc-linux-gnu")
-	elseif (CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-		set(JEMALLOC_BUILD_TRIPLET "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-darwin")
-	else()
-		set(JEMALLOC_BUILD_TRIPLET "${CMAKE_HOST_SYSTEM_PROCESSOR}-unknown-${CMAKE_HOST_SYSTEM_NAME}")
 	endif()
 
 	set(
 		JEMALLOC_CONFIGURE_ENV
-		"CC=${CMAKE_C_COMPILER}"
-		"CFLAGS=${CMAKE_C_FLAGS} -O2 -fPIC"
+		"CC=${CMAKE_C_COMPILER} ${JEMALLOC_CC_EXTRA}"
+		"CFLAGS=${CMAKE_C_FLAGS} -O3 -fpic"
 	)
 
 	file(MAKE_DIRECTORY "${JEMALLOC_BUILD_DIRECTORY}")
 
 	add_custom_command(
-		OUTPUT "${JEMALLOC_SOURCE_DIRECTORY}/configure"
-
+		OUTPUT "${JEMALLOC_SOURCE_DIRECTORY}/configure"		
 		COMMAND autoconf
-
 		WORKING_DIRECTORY "${JEMALLOC_SOURCE_DIRECTORY}"
-
 		COMMENT "-- Generating jemalloc configure"
-
 		VERBATIM
 	)
 
-	set(JEMALLOC_CONFIGURE_FLAGS
-		--host=${JEMALLOC_HOST_TRIPLET}
-		--build=${JEMALLOC_BUILD_TRIPLET}
-		--with-jemalloc-prefix=
-		--enable-static
-		--disable-shared
+	set(
+		JEMALLOC_CONFIGURE_FLAGS
+		"--host=${CMAKE_HOST}"
+		"--build=${CMAKE_BUILD}"
+		"--with-jemalloc-prefix="
+		"--enable-static"
+		"--disable-shared"
 	)
 
 	if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -898,22 +872,16 @@ if (NOT WIN32)
 
 	add_custom_command(
 		OUTPUT "${JEMALLOC_BUILD_DIRECTORY}/Makefile"
-
 		COMMAND "${CMAKE_COMMAND}" -E make_directory
 			"${JEMALLOC_BUILD_DIRECTORY}"
-
 		COMMAND
 			"${CMAKE_COMMAND}" -E env
 			${JEMALLOC_CONFIGURE_ENV}
-			bash "${JEMALLOC_SOURCE_DIRECTORY}/configure"
+			"${JEMALLOC_SOURCE_DIRECTORY}/configure"
 			${JEMALLOC_CONFIGURE_FLAGS}
-
 		WORKING_DIRECTORY "${JEMALLOC_BUILD_DIRECTORY}"
-
 		DEPENDS "${JEMALLOC_SOURCE_DIRECTORY}/configure"
-
 		COMMENT "-- Configuring jemalloc"
-
 		VERBATIM
 	)
 
@@ -921,15 +889,10 @@ if (NOT WIN32)
 
 	add_custom_command(
 		OUTPUT "${JEMALLOC_LIBRARY}"
-
 		COMMAND make
-
 		WORKING_DIRECTORY "${JEMALLOC_BUILD_DIRECTORY}"
-
 		DEPENDS "${JEMALLOC_BUILD_DIRECTORY}/Makefile"
-
 		COMMENT "-- Building jemalloc"
-
 		VERBATIM
 	)
 
