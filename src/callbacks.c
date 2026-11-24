@@ -23,7 +23,9 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 
 	const size_t requested = size * nmemb;
 
-	if (data->remaining == 0) {
+	int status = (data->flags & TD_CHUNKED_REQUEST) != 0;
+
+	if (!status && data->remaining == 0) {
 		return 0;
 	}
 
@@ -34,7 +36,7 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 			buffered = requested;
 		}
 
-		if (buffered > data->remaining) {
+		if (!status && buffered > data->remaining) {
 			buffered = data->remaining;
 		}
 
@@ -49,9 +51,15 @@ size_t read_callback(char* dest, size_t size, size_t nmemb, void* userp) {
 		memmove(data->request.body.content, data->request.body.content + buffered, data->request.body.size - buffered);
 		data->request.body.size -= buffered;
 
-		data->remaining -= buffered;
+		if (!status) {
+			data->remaining -= buffered;
+		}
 
 		return buffered;
+	}
+
+	if (status && (data->flags & TD_CHUNKED_REQUEST_DONE) != 0) {
+		return 0;
 	}
 
 	/* the rest of the request body has not been received yet; pause the
@@ -82,7 +90,11 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userp) {
 
 	data->retryable = false;
 
-	if (client_write(data, ptr, chunk_size) != 0) {
+	if ((data->flags & TD_CHUNKED_RESPONSE) != 0) {
+		if (client_write_chunked(data, ptr, chunk_size) != 0) {
+			return CURL_WRITEFUNC_ERROR;
+		}
+	} else if (client_write(data, ptr, chunk_size) != 0) {
 		return CURL_WRITEFUNC_ERROR;
 	}
 
@@ -168,6 +180,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 	size_t length = nitems * size;
 
 	int code = 0;
+	int chunked = 0;
 
 	const size_t slength = data->buffer.slength + length;
 
@@ -194,6 +207,16 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			status = -1;
 			goto end;
 		}
+
+		if (response.status == 101 && (data->flags & TD_WEBSOCKET) == 0) {
+			data->flags &= ~TD_KEEP_ALIVE;
+		}
+
+		chunked = (data->flags & TD_KEEP_ALIVE) != 0 &&
+			!(response.status == 101 && (data->flags & TD_WEBSOCKET) != 0) &&
+			data->request.method != HEAD &&
+			response.status != 204 && response.status != 304 && response.status != 205 &&
+			!(response.status >= 100 && response.status < 200 && response.status != 101);
 
 		#if defined(KAD_CAPTURE)
 			capture_response(&data->capture, response.status, data->buffer.s, data->buffer.slength);
@@ -223,21 +246,36 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		free(line);
 		line = NULL;
 
-		/* the connection closes after each response, so the client must not
-		   pool it and reuse it while it is already gone; the upstream's
-		   Connection header is stripped below, so it is set explicitly here.
-		   A websocket upgrade keeps the connection alive instead */
+		/* the upstream's Connection header is stripped below, so the
+		   connection policy is set explicitly here. A websocket upgrade
+		   keeps the connection alive instead */
 
-		if (response.status == 101) {
+		if (response.status == 101 && (data->flags & TD_WEBSOCKET) != 0) {
 			if (client_write(data, "Connection: upgrade\r\n", 21) != 0) {
 				status = -1;
 				goto end;
 			}
 
 			data->flags |= TD_WS_ESTABLISHED;
-		} else if (client_write(data, "Connection: close\r\n", 19) != 0) {
-			status = -1;
-			goto end;
+		} else if (!(response.status >= 100 && response.status < 200 && response.status != 101)) {
+			if ((data->flags & TD_KEEP_ALIVE) != 0) {
+				if (client_write(data, "Connection: keep-alive\r\n", 24) != 0) {
+					status = -1;
+					goto end;
+				}
+			} else if (client_write(data, "Connection: close\r\n", 19) != 0) {
+				status = -1;
+				goto end;
+			}
+		}
+
+		if (chunked) {
+			if (client_write(data, "Transfer-Encoding: chunked\r\n", 28) != 0) {
+				status = -1;
+				goto end;
+			}
+
+			data->flags |= TD_CHUNKED_RESPONSE;
 		}
 
 		for (index = 0; index < response.headers.offset; index++) {
@@ -254,6 +292,10 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 
 			/* This header will report an incorrect value for compressed/chunked responses, so let's just remove it */
 			if (evutil_ascii_strcasecmp(header->key, "Content-Length") == 0) {
+				if (chunked || (response.status >= 100 && response.status < 200 && response.status != 101) || response.status == 204) {
+					continue;
+				}
+
 				item = http_headers_get(&response.headers, "Transfer-Encoding");
 
 				if (item != NULL && strcmp(item->value, "chunked") == 0) {
@@ -268,6 +310,10 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 			}
 
 			if (evutil_ascii_strcasecmp(header->key, "Connection") == 0) {
+				continue;
+			}
+
+			if (chunked && evutil_ascii_strcasecmp(header->key, "Trailer") == 0) {
 				continue;
 			}
 
@@ -308,12 +354,6 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		}
 
 		buffer_free(&data->buffer);
-
-		/* the request is no longer needed once its body has been fully forwarded */
-
-		if (data->remaining == 0) {
-			http_object_free(&data->request);
-		}
 	}
 
 	end:;

@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 #include <curl/curl.h>
+#include <picohttpparser.h>
 
 #include "ssl.h"
 #include "http.h"
@@ -24,7 +25,8 @@ enum ClientState {
 	CLIENT_STATE_HANDSHAKE = 2,
 	CLIENT_STATE_FORWARD = 3,
 	CLIENT_STATE_CLOSING = 4,
-	CLIENT_STATE_WEBSOCKET = 5
+	CLIENT_STATE_WEBSOCKET = 5,
+	CLIENT_STATE_KEEP_ALIVE = 6
 };
 
 typedef enum ClientState client_state_t;
@@ -39,10 +41,15 @@ typedef enum ClientState client_state_t;
 #define TD_WS_ESTABLISHED (1 << 7)
 #define TD_WS_PAUSE_UP (1 << 8)
 #define TD_WS_PAUSE_DOWN (1 << 9)
+#define TD_KEEP_ALIVE (1 << 10)
+#define TD_CHUNKED_RESPONSE (1 << 11)
+#define TD_CHUNKED_REQUEST (1 << 12)
+#define TD_CHUNKED_REQUEST_DONE (1 << 13)
 
 struct transferdata {
 	ssl_context_t context;
 	http_object_t request;
+	struct phr_chunked_decoder chunked;
 	struct curl_slist* headers;
 	CURL* curl;
 #if defined(KAD_CAPTURE)

@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 #include <ctype.h>
@@ -22,6 +23,7 @@
 #endif
 
 #include <curl/curl.h>
+#include <picohttpparser.h>
 
 #include <event2/event.h>
 
@@ -1160,6 +1162,10 @@ static void client_event_update(transferdata_t* const data) {
 		} else {
 			events |= EV_READ;
 		}
+	} else if (data->state == CLIENT_STATE_KEEP_ALIVE) {
+		/* drain the last response bytes, then reset for the next request */
+
+		events |= EV_WRITE;
 	} else {
 		int reads = (data->flags & TD_EOF) == 0;
 
@@ -1241,12 +1247,20 @@ the rest of its request; returns (-1) when the client was destroyed.
 
 static int client_close_or_destroy(transferdata_t* const data) {
 
-	if (data->remaining > 0 && (data->flags & TD_EOF) == 0) {
-		data->state = CLIENT_STATE_CLOSING;
+	if ((data->flags & TD_EOF) == 0) {
+		const int chunked = (data->flags & TD_CHUNKED_REQUEST) != 0;
 
-		client_linger_close(data);
+		const int pending = chunked
+			? (data->flags & TD_CHUNKED_REQUEST_DONE) == 0
+			: data->remaining > data->request.body.size;
 
-		return 0;
+		if (pending) {
+			data->state = CLIENT_STATE_CLOSING;
+
+			client_linger_close(data);
+
+			return 0;
+		}
 	}
 
 	client_destroy(data);
@@ -1325,6 +1339,34 @@ int client_write(transferdata_t* const data, const char* const buffer, const siz
 	client_event_update(data);
 
 	return 0;
+
+}
+
+int client_write_chunked(transferdata_t* const data, const char* const buffer, const size_t size) {
+
+	char header[32];
+
+	int length = 0;
+
+	if (size == 0) {
+		return 0;
+	}
+
+	length = snprintf(header, sizeof(header), "%zx\r\n", size);
+
+	if (length < 0 || (size_t) length >= sizeof(header)) {
+		return -1;
+	}
+
+	if (client_write(data, header, (size_t) length) != 0) {
+		return -1;
+	}
+
+	if (client_write(data, buffer, size) != 0) {
+		return -1;
+	}
+
+	return client_write(data, CRLF, strlen(CRLF));
 
 }
 
@@ -1812,6 +1854,13 @@ static int client_start_transfer(transferdata_t* const data) {
 	for (index = 0; index < data->request.headers.offset; index++) {
 		header = &data->request.headers.items[index];
 
+		if ((data->flags & TD_CHUNKED_REQUEST) != 0 && (
+			evutil_ascii_strcasecmp(header->key, "Transfer-Encoding") == 0 ||
+			evutil_ascii_strcasecmp(header->key, "Content-Length") == 0 ||
+			evutil_ascii_strcasecmp(header->key, "Trailer") == 0)) {
+			continue;
+		}
+
 		status = 0;
 		
 		for (subindex = 0; subindex < sizeof(IMPERSONATE_HEADERS) / sizeof(*IMPERSONATE_HEADERS); subindex++) {
@@ -1856,9 +1905,9 @@ static int client_start_transfer(transferdata_t* const data) {
 
 	header = http_headers_get(&data->request.headers, "Transfer-Encoding");
 
-	status = (header != NULL && strcmp(header->value, "chunked") == 0);
+	status = (data->flags & TD_CHUNKED_REQUEST) != 0;
 
-	if (!status) {
+	if (header == NULL) {
 		header = http_headers_get(&data->request.headers, "Content-Length");
 
 		if (header != NULL) {
@@ -2015,6 +2064,198 @@ static int client_start_transfer(transferdata_t* const data) {
 
 }
 
+static int client_token_next(const char** const cursor, const char** const token, size_t* const length) {
+
+	const char* start = *cursor;
+	const char* end = NULL;
+	const char* trimmed = NULL;
+
+	while (*start == ' ' || *start == '\t' || *start == ',') {
+		start++;
+	}
+
+	if (*start == '\0') {
+		*cursor = start;
+
+		return 0;
+	}
+
+	end = start;
+
+	while (*end != '\0' && *end != ',') {
+		end++;
+	}
+
+	trimmed = end;
+
+	while (trimmed > start && (trimmed[-1] == ' ' || trimmed[-1] == '\t')) {
+		trimmed--;
+	}
+
+	*token = start;
+	*length = (size_t) (trimmed - start);
+	*cursor = end;
+
+	return 1;
+
+}
+
+static int client_header_has_token(const http_header_t* const header, const char* const token) {
+
+	const char* cursor = NULL;
+	const char* start = NULL;
+
+	size_t length = 0;
+
+	if (header == NULL || header->value == NULL) {
+		return 0;
+	}
+
+	cursor = header->value;
+
+	while (client_token_next(&cursor, &start, &length)) {
+		if (length == strlen(token) && evutil_ascii_strncasecmp(start, token, length) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+
+}
+
+static int client_headers_have_token(const http_headers_t* const headers, const char* const key, const char* const token) {
+
+	size_t index = 0;
+
+	const http_header_t* header = NULL;
+
+	for (index = 0; index < headers->offset; index++) {
+		header = &headers->items[index];
+
+		if (evutil_ascii_strcasecmp(header->key, key) != 0) {
+			continue;
+		}
+
+		if (client_header_has_token(header, token)) {
+			return 1;
+		}
+	}
+
+	return 0;
+
+}
+
+static int client_request_is_chunked(const http_headers_t* const headers) {
+
+	size_t index = 0;
+
+	const http_header_t* header = NULL;
+
+	const char* cursor = NULL;
+	const char* start = NULL;
+
+	size_t length = 0;
+
+	int status = 0;
+
+	for (index = 0; index < headers->offset; index++) {
+		header = &headers->items[index];
+
+		if (evutil_ascii_strcasecmp(header->key, "Transfer-Encoding") != 0) {
+			continue;
+		}
+
+		cursor = header->value;
+
+		while (client_token_next(&cursor, &start, &length)) {
+			if (status || length != strlen("chunked") || evutil_ascii_strncasecmp(start, "chunked", length) != 0) {
+				return 0;
+			}
+
+			status = 1;
+		}
+	}
+
+	return status;
+
+}
+
+static int client_append(char** const content, size_t* const length, const char* const buffer, const size_t size) {
+
+	char* s = NULL;
+
+	if (size == 0) {
+		return 0;
+	}
+
+	if (SIZE_MAX - *length <= size) {
+		return -1;
+	}
+
+	s = realloc(*content, *length + size + 1);
+
+	if (s == NULL) {
+		return -1;
+	}
+
+	memcpy(s + *length, buffer, size);
+
+	*content = s;
+	*length += size;
+	s[*length] = '\0';
+
+	return 0;
+
+}
+
+static int client_chunked_decode(transferdata_t* const data, char* const buffer, const size_t size) {
+
+	size_t length = size;
+
+	ssize_t offset = 0;
+
+	if ((data->flags & TD_CHUNKED_REQUEST_DONE) != 0) {
+		if ((data->flags & TD_KEEP_ALIVE) != 0 && client_append(&data->in.s, &data->in.slength, buffer, size) != 0) {
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+			return -1;
+		}
+
+		return 0;
+	}
+
+	if (size == 0) {
+		return 0;
+	}
+
+	offset = phr_decode_chunked(&data->chunked, buffer, &length);
+
+	if (offset == -1) {
+		loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_HTTP_MALFORMED));
+
+		return -1;
+	}
+
+	if (client_append(&data->request.body.content, &data->request.body.size, buffer, length) != 0) {
+		loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+		return -1;
+	}
+
+	if (offset >= 0) {
+		data->flags |= TD_CHUNKED_REQUEST_DONE;
+
+		if ((data->flags & TD_KEEP_ALIVE) != 0 && client_append(&data->in.s, &data->in.slength, buffer + length, (size_t) offset) != 0) {
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+			return -1;
+		}
+	}
+
+	return 0;
+
+}
+
 static int client_request_data(transferdata_t* const data, const char* const chunk, const size_t size) {
 	/*
 	Buffers the incoming request bytes and parses the request once its
@@ -2026,57 +2267,27 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 	char* s = NULL;
 	char* uri = NULL;
 
+	const char* header_end = NULL;
+
 	const http_header_t* header = NULL;
 
 	int code = 0;
 
-	size_t parse_size = 0;
+	ssize_t offset = 0;
+
+	size_t header_size = 0;
+	size_t available = 0;
+	size_t body_size = 0;
+	size_t leftover = 0;
+	size_t content_length = 0;
 	size_t length = 0;
 
-	s = realloc(data->in.s, data->in.slength + size + 1);
+	unsigned long long value = 0;
 
-	if (s == NULL) {
-		loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+	char* end = NULL;
 
-		client_kill(data);
-
-		return -1;
-	}
-
-	memcpy(s + data->in.slength, chunk, size);
-
-	data->in.s = s;
-	data->in.slength += size;
-	data->in.s[data->in.slength] = '\0';
-
-	/* at most MAX_HTTP_HEADERS_SIZE bytes are parsed and anything beyond
-	   them is request body that is kept buffered */
-
-	parse_size = (data->in.slength > MAX_HTTP_HEADERS_SIZE) ? MAX_HTTP_HEADERS_SIZE : data->in.slength;
-
-	http_object_init(&data->request, HTTP_REQUEST);
-
-	code = http_object_parse(&data->request, data->in.s, parse_size);
-
-	if (code == KADERR_HTTP_INCOMPLETE && parse_size < (size_t) MAX_HTTP_HEADERS_SIZE) {
-		/* the headers are still incomplete; keep buffering */
-		return 0;
-	}
-
-	data->request_size = parse_size;
-
-	if (code != KADERR_SUCCESS) {
-		loggln(LOG_ERROR, "[error] %s", strkaderr(code));
-
-		client_kill(data);
-
-		return -1;
-	}
-
-	length = data->in.slength - parse_size;
-
-	if (length > 0) {
-		s = realloc(data->request.body.content, data->request.body.size + length);
+	if (size > 0) {
+		s = realloc(data->in.s, data->in.slength + size + 1);
 
 		if (s == NULL) {
 			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
@@ -2086,13 +2297,146 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 			return -1;
 		}
 
-		memcpy(s + data->request.body.size, data->in.s + parse_size, length);
+		memcpy(s + data->in.slength, chunk, size);
 
-		data->request.body.content = s;
-		data->request.body.size += length;
+		data->in.s = s;
+		data->in.slength += size;
+		data->in.s[data->in.slength] = '\0';
 	}
 
-	buffer_free(&data->in);
+	if (data->in.slength == 0) {
+		return 0;
+	}
+
+	header_end = strstr(data->in.s, CRLFCRLF);
+
+	if (header_end == NULL) {
+		if (data->in.slength >= MAX_HTTP_HEADERS_SIZE) {
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_HTTP_MALFORMED));
+
+			client_kill(data);
+
+			return -1;
+		}
+
+		/* the headers are still incomplete; keep buffering */
+		return 0;
+	}
+
+	header_size = (size_t) (header_end - data->in.s) + strlen(CRLFCRLF);
+
+	if (header_size > MAX_HTTP_HEADERS_SIZE) {
+		loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_HTTP_MALFORMED));
+
+		client_kill(data);
+
+		return -1;
+	}
+
+	http_object_init(&data->request, HTTP_REQUEST);
+
+	code = http_object_parse(&data->request, data->in.s, header_size);
+
+	if (code != KADERR_SUCCESS) {
+		loggln(LOG_ERROR, "[error] %s", strkaderr(code));
+
+		client_kill(data);
+
+		return -1;
+	}
+
+	data->request_size = header_size;
+	data->flags &= ~(TD_KEEP_ALIVE | TD_CHUNKED_RESPONSE | TD_CHUNKED_REQUEST | TD_CHUNKED_REQUEST_DONE);
+
+	memset(&data->chunked, 0, sizeof(data->chunked));
+
+	data->chunked.consume_trailer = 1;
+
+	header = http_headers_get(&data->request.headers, "Transfer-Encoding");
+
+	code = (header != NULL) && client_request_is_chunked(&data->request.headers);
+
+	if ((header == NULL || code) && !client_headers_have_token(&data->request.headers, "Connection", "close")) {
+		data->flags |= TD_KEEP_ALIVE;
+	}
+
+	if (header == NULL) {
+		header = http_headers_get(&data->request.headers, "Content-Length");
+
+		if (header != NULL) {
+			errno = 0;
+			value = strtoull(header->value, &end, 10);
+
+			while (end != NULL && (*end == ' ' || *end == '\t')) {
+				end++;
+			}
+
+			if (errno != 0 || end == header->value || end == NULL || *end != '\0' || value > (unsigned long long) SIZE_MAX) {
+				loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_HTTP_MALFORMED));
+
+				client_kill(data);
+
+				return -1;
+			}
+
+			content_length = (size_t) value;
+		}
+	}
+
+	available = data->in.slength - header_size;
+
+	if (code) {
+		data->flags |= TD_CHUNKED_REQUEST;
+
+		length = available;
+
+		if (available > 0) {
+			offset = phr_decode_chunked(&data->chunked, data->in.s + header_size, &length);
+
+			if (offset == -1) {
+				loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_HTTP_MALFORMED));
+
+				client_kill(data);
+
+				return -1;
+			}
+
+			if (offset >= 0) {
+				data->flags |= TD_CHUNKED_REQUEST_DONE;
+			}
+		}
+	} else {
+		body_size = (available < content_length) ? available : content_length;
+
+		length = body_size;
+		offset = (ssize_t) (available - body_size);
+	}
+
+	if (length > 0) {
+		s = malloc(length);
+
+		if (s == NULL) {
+			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+			client_kill(data);
+
+			return -1;
+		}
+
+		memcpy(s, data->in.s + header_size, length);
+
+		data->request.body.content = s;
+		data->request.body.size = length;
+	}
+
+	if (offset > 0 && (data->flags & TD_KEEP_ALIVE) != 0) {
+		leftover = (size_t) offset;
+
+		memmove(data->in.s, data->in.s + header_size + length, leftover);
+	}
+
+	data->in.slength = leftover;
+	data->in.s[leftover] = '\0';
 
 	/* a websocket upgrade request only makes sense for HTTP/1.1 GETs
 	   without a body */
@@ -2115,6 +2459,7 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 		data->request.uri = NULL;
 
 		http_object_free(&data->request);
+		buffer_free(&data->in);
 
 		if (client_write(data, "HTTP/1.0 200 OK\r\n\r\n", 19) != 0) {
 			loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SOCKET_SEND_FAILURE));
@@ -2153,9 +2498,6 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 
 			return -1;
 		}
-
-		free(data->hostname);
-		data->hostname = NULL;
 
 		free(data->request.uri);
 		data->request.uri = uri;
@@ -2211,6 +2553,49 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 
 		return -1;
 	}
+
+	return 0;
+
+}
+
+static int client_reset(transferdata_t* const data) {
+	/*
+	Releases the per-request state once a keep-alive response has been
+	fully delivered, keeping the connection and any pipelined bytes.
+
+	Returns (0) on success, (-1) when the client was destroyed.
+	*/
+
+	curl_slist_free_all(data->headers);
+	data->headers = NULL;
+
+	http_object_free(&data->request);
+	http_object_init(&data->request, HTTP_REQUEST);
+
+	memset(&data->chunked, 0, sizeof(data->chunked));
+
+	buffer_free(&data->buffer);
+
+	#if defined(KAD_CAPTURE)
+		capture_close(&data->capture);
+	#endif
+
+	data->remaining = 0;
+	data->request_size = 0;
+	data->retries = 0;
+	data->retryable = false;
+	data->wait = 0;
+	data->state = CLIENT_STATE_REQUEST;
+	data->flags &= TD_SECURE;
+	data->events = -1;
+
+	if (data->in.slength > 0) {
+		if (client_request_data(data, NULL, 0) != 0) {
+			return -1;
+		}
+	}
+
+	client_event_update(data);
 
 	return 0;
 
@@ -2283,12 +2668,46 @@ static int client_read(transferdata_t* const data) {
 				return -1;
 			}
 
-			if (data->state == CLIENT_STATE_REQUEST || (data->state == CLIENT_STATE_FORWARD && data->remaining > 0)) {
+			if (data->state == CLIENT_STATE_KEEP_ALIVE) {
+				/* the client closed while idle between two requests */
+
+				client_destroy(data);
+
+				return -1;
+			}
+
+			if (data->state == CLIENT_STATE_REQUEST) {
+				if (data->in.slength == 0) {
+					/* the client closed while idle between two requests */
+
+					client_destroy(data);
+
+					return -1;
+				}
+
 				loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SOCKET_RECV_FAILURE));
 
 				client_kill(data);
 
 				return -1;
+			}
+
+			if (data->state == CLIENT_STATE_FORWARD) {
+				if ((data->flags & TD_CHUNKED_REQUEST) != 0) {
+					if ((data->flags & TD_CHUNKED_REQUEST_DONE) == 0) {
+						loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SOCKET_RECV_FAILURE));
+
+						client_kill(data);
+
+						return -1;
+					}
+				} else if (data->remaining > data->request.body.size) {
+					loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SOCKET_RECV_FAILURE));
+
+					client_kill(data);
+
+					return -1;
+				}
 			}
 
 			data->flags |= TD_EOF;
@@ -2357,36 +2776,81 @@ static int client_read(transferdata_t* const data) {
 			continue;
 		}
 
-		/* forward what is left of the request body to cURL; anything
-		   beyond its declared size is discarded, exactly like in the
-		   previous threaded design */
+		/* forward what is left of the request body to cURL; bytes beyond
+		   its declared size belong to the next request and are kept for
+		   the keep-alive reset */
 
-		if (data->state == CLIENT_STATE_FORWARD && data->remaining > data->request.body.size) {
-			forward_size = data->remaining - data->request.body.size;
+		if (data->state == CLIENT_STATE_FORWARD) {
+			if ((data->flags & TD_CHUNKED_REQUEST) != 0) {
+				if (client_chunked_decode(data, chunk, (size_t) size) != 0) {
+					client_kill(data);
 
-			if (forward_size > (size_t) size) {
-				forward_size = (size_t) size;
+					return -1;
+				}
+
+				if ((data->flags & TD_PAUSE_UP) != 0 && (data->request.body.size > 0 || (data->flags & TD_CHUNKED_REQUEST_DONE) != 0)) {
+					curl_easy_pause(data->curl, CURLPAUSE_SEND_CONT);
+
+					data->flags &= ~TD_PAUSE_UP;
+
+					if (client_kick(data) != 0) {
+						return -1;
+					}
+
+					return 0;
+				}
+
+				continue;
 			}
 
-			s = realloc(data->request.body.content, data->request.body.size + forward_size);
+			forward_size = 0;
 
-			if (s == NULL) {
-				loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+			if (data->remaining > data->request.body.size) {
+				forward_size = data->remaining - data->request.body.size;
 
-				client_kill(data);
+				if (forward_size > (size_t) size) {
+					forward_size = (size_t) size;
+				}
 
-				return -1;
+				s = realloc(data->request.body.content, data->request.body.size + forward_size);
+
+				if (s == NULL) {
+					loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+					client_kill(data);
+
+					return -1;
+				}
+
+				memcpy(s + data->request.body.size, chunk, forward_size);
+
+				data->request.body.content = s;
+				data->request.body.size += forward_size;
 			}
 
-			memcpy(s + data->request.body.size, chunk, forward_size);
+			if ((data->flags & TD_KEEP_ALIVE) != 0 && forward_size < (size_t) size) {
+				const size_t pending = (size_t) size - forward_size;
 
-			data->request.body.content = s;
-			data->request.body.size += forward_size;
+				s = realloc(data->in.s, data->in.slength + pending);
+
+				if (s == NULL) {
+					loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_MEMORY_ALLOCATE_FAILURE));
+
+					client_kill(data);
+
+					return -1;
+				}
+
+				memcpy(s + data->in.slength, chunk + forward_size, pending);
+
+				data->in.s = s;
+				data->in.slength += pending;
+			}
 
 			/* data->remaining is only decremented as cURL consumes the
 			   buffered body, exactly like in the previous design */
 
-			if ((data->flags & TD_PAUSE_UP) != 0) {
+			if (forward_size > 0 && (data->flags & TD_PAUSE_UP) != 0) {
 				curl_easy_pause(data->curl, CURLPAUSE_SEND_CONT);
 
 				data->flags &= ~TD_PAUSE_UP;
@@ -2438,10 +2902,14 @@ static void client_event_cb(evutil_socket_t fd, short events, void* arg) {
 			if (client_close_or_destroy(data) != 0) {
 				dead = 1;
 			}
+		} else if (data->state == CLIENT_STATE_KEEP_ALIVE && data->out.slength == 0) {
+			if (client_reset(data) != 0) {
+				dead = 1;
+			}
 		}
 	}
 
-	if (!dead && (events & EV_READ) != 0) {
+	if (!dead && (events & EV_READ) != 0 && data->state != CLIENT_STATE_KEEP_ALIVE) {
 		if (client_read(data) != 0) {
 			dead = 1;
 		}
@@ -2774,6 +3242,7 @@ static void curl_check_completed(void) {
 	CURLMcode code = CURLM_OK;
 
 	int left = 0;
+	int status = 0;
 
 	while ((msg = curl_multi_info_read(curl_multi, &left)) != NULL) {
 		if (msg->data.result != CURLE_OK) {
@@ -2870,6 +3339,39 @@ static void curl_check_completed(void) {
 
 		data->curl = NULL;
 
+		if ((data->flags & TD_CHUNKED_RESPONSE) != 0 && msg->data.result == CURLE_OK) {
+			if (client_write(data, "0\r\n\r\n", 5) != 0) {
+				loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SOCKET_SEND_FAILURE));
+
+				client_kill(data);
+
+				continue;
+			}
+		}
+
+		const int chunked = (data->flags & TD_CHUNKED_REQUEST) != 0;
+
+		status = chunked
+			? (data->flags & TD_CHUNKED_REQUEST_DONE) != 0
+			: data->remaining <= data->request.body.size;
+
+		if ((data->flags & TD_KEEP_ALIVE) != 0 &&
+			(chunked ? (status && data->request.body.size == 0) : (data->remaining == 0)) &&
+			(data->flags & TD_EOF) == 0 &&
+			msg->data.result == CURLE_OK) {
+			/* the response is complete and the request body was fully
+			   consumed; flush it, then parse the next request */
+
+			data->state = CLIENT_STATE_KEEP_ALIVE;
+			data->events = -1;
+
+			client_event_update(data);
+
+			continue;
+		}
+
+		data->flags &= ~TD_KEEP_ALIVE;
+
 		if (data->out.slength > 0) {
 			/* the transfer is done; flush the pending response bytes to
 			   the client before closing the connection */
@@ -2877,7 +3379,7 @@ static void curl_check_completed(void) {
 			data->state = CLIENT_STATE_CLOSING;
 
 			client_event_update(data);
-		} else if (curl_depth > 0 && (data->remaining == 0 || (data->flags & TD_EOF) != 0)) {
+		} else if (curl_depth > 0 && (status || (data->flags & TD_EOF) != 0)) {
 			/* nested inside the callback of the client itself; its memory
 			   must not be released yet */
 

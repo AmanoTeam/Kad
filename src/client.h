@@ -6,5 +6,6 @@
 #include "transferdata.h"
 
 int client_write(transferdata_t* const data, const char* const buffer, const size_t size);
+int client_write_chunked(transferdata_t* const data, const char* const buffer, const size_t size);
 
 #endif
