@@ -171,12 +171,14 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 
 	const size_t slength = data->buffer.slength + length;
 
-	data->buffer.s = realloc(data->buffer.s, slength + 1);
+	char* const resized = realloc(data->buffer.s, slength + 1);
 
-	if (data->buffer.s == NULL) {
+	if (resized == NULL) {
 		status = -1;
 		goto end;
 	}
+
+	data->buffer.s = resized;
 
 	memcpy(data->buffer.s + data->buffer.slength, buffer, length);
 
@@ -199,7 +201,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 
 		http_version = http_version_stringify(HTTP11);
 
-		line = curl_maprintf("%s%s%s %i %s", PROTOCOL_NAME, SLASH, http_version, (int) response.status, CRLF);
+		line = curl_maprintf("%s%s%s %i %s", PROTOCOL_NAME, SLASH, http_version, response.status, CRLF);
 
 		if (line == NULL) {
 			status = -1;

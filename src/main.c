@@ -683,27 +683,17 @@ static int impersonate_target_platform = -1;
 
 static int impersonate_target_browser = -1;
 
-static int chrome_target_version(const char* const target, const int android) {
+static int chrome_android_target_version(const char* const target) {
 
 	int version = 0;
 	int offset = 0;
 
-	if (android) {
-		if (sscanf(target, "chrome%i_android%n", &version, &offset) != 1 || offset == 0 || target[offset] != '\0') {
-			return 0;
-		}
+	if (sscanf(target, "chrome%i_android%n", &version, &offset) != 1 || target[offset] != '\0') {
+		return 0;
+	}
 
-		if (version < KAD_CHROME_MIN_ANDROID_VERSION || version > KAD_CHROME_MAX_VERSION) {
-			return 0;
-		}
-	} else {
-		if (sscanf(target, "chrome%i%n", &version, &offset) != 1 || offset == 0 || target[offset] != '\0') {
-			return 0;
-		}
-
-		if (version < KAD_CHROME_MIN_VERSION || version > KAD_CHROME_MAX_VERSION) {
-			return 0;
-		}
+	if (version < KAD_CHROME_MIN_ANDROID_VERSION || version > KAD_CHROME_MAX_VERSION) {
+		return 0;
 	}
 
 	return version;
@@ -719,7 +709,7 @@ static int target_version(const char* const target, const char* const browser, c
 
 	snprintf(format, sizeof(format), "%s%%i%%n", browser);
 
-	if (sscanf(target, format, &version, &offset) != 1 || offset == 0 || target[offset] != '\0') {
+	if (sscanf(target, format, &version, &offset) != 1 || target[offset] != '\0') {
 		return 0;
 	}
 
@@ -807,7 +797,7 @@ static int set_impersonate_headers(CURL* curl, const int browser, const int vers
 
 			snprintf(user_agent, sizeof(user_agent), EDGE_ANDROID_LEGACY_UA_FORMAT, ua_version, EDGE_VERSIONS[version - KAD_EDGE_MIN_VERSION]);
 		} else {
-			if (browser == KAD_BROWSER_CHROME && platform == KAD_CHROME_PLATFORM_ANDROID && version >= KAD_CHROME_ANDROID_MIN_LEGACY_VERSION && version <= KAD_CHROME_ANDROID_MAX_LEGACY_VERSION) {
+			if (browser == KAD_BROWSER_CHROME && platform == KAD_CHROME_PLATFORM_ANDROID && version <= KAD_CHROME_ANDROID_MAX_LEGACY_VERSION) {
 				ua_format = CHROME_ANDROID_LEGACY_UA_FORMAT;
 				ua_version = CHROME_ANDROID_FULL_UA_VERSIONS[version - KAD_CHROME_ANDROID_MIN_LEGACY_VERSION];
 			} else {
@@ -887,7 +877,7 @@ static int load_ssl_certificates(const char* const cacert) {
 	/*
 	Locates the CA certificate bundle file for cURL to use.
 	
-	If 'cacert' is not NULL and not empty, it is used as the path to the
+	If 'cacert' is not empty, it is used as the path to the
 	CA certificate bundle instead of the default one.
 	
 	Returns (0) on success, (-1) on error.
@@ -904,7 +894,7 @@ static int load_ssl_certificates(const char* const cacert) {
 
 	system_error_t error = {0};
 
-	if (cacert != NULL && *cacert != '\0') {
+	if (*cacert != '\0') {
 		ca_bundle = strdup(cacert);
 
 		if (ca_bundle == NULL) {
@@ -987,10 +977,6 @@ static int load_ssl_certificates(const char* const cacert) {
 	ca_bundle = NULL;
 	
 	end:;
-	
-	if (stream != NULL) {
-		fstream_close(stream);
-	}
 	
 	free(app_directory);
 	free(ca_bundle);
@@ -1137,7 +1123,7 @@ static void client_destroy(transferdata_t* const data) {
 	and the context keeps pointing at freed memory.
 	*/
 
-	if ((data->flags & TD_WEBSOCKET) != 0 && (data->curl != NULL || data->ws_context != NULL)) {
+	if ((data->flags & TD_WEBSOCKET) != 0) {
 		ws_kill(data);
 	}
 
@@ -1146,7 +1132,7 @@ static void client_destroy(transferdata_t* const data) {
 
 static void client_kill(transferdata_t* const data) {
 
-	if ((data->flags & TD_WEBSOCKET) != 0 && (data->curl != NULL || data->ws_context != NULL)) {
+	if ((data->flags & TD_WEBSOCKET) != 0) {
 		ws_kill(data);
 	}
 
@@ -1196,7 +1182,7 @@ static void client_event_update(transferdata_t* const data) {
 	/* while lingering, the watcher bounds how long the client can keep
 	   sending after its answer was already delivered */
 
-	if (data->state == CLIENT_STATE_CLOSING && (data->flags & TD_FIN) != 0) {
+	if ((data->flags & TD_FIN) != 0) {
 		tv.tv_sec = CLIENT_DRAIN_TIMEOUT;
 		tv.tv_usec = 0;
 
@@ -1255,7 +1241,7 @@ the rest of its request; returns (-1) when the client was destroyed.
 
 static int client_close_or_destroy(transferdata_t* const data) {
 
-	if (data->remaining > 0 && (data->flags & TD_EOF) == 0 && data->state != CLIENT_STATE_HANDSHAKE && data->state != CLIENT_STATE_REQUEST) {
+	if (data->remaining > 0 && (data->flags & TD_EOF) == 0) {
 		data->state = CLIENT_STATE_CLOSING;
 
 		client_linger_close(data);
@@ -1287,7 +1273,7 @@ static int client_flush(transferdata_t* const data) {
 			return -1;
 		}
 
-		if (size == 0 && wait != 0) {
+		if (size == 0) {
 			data->wait |= wait;
 			break;
 		}
@@ -1782,7 +1768,7 @@ static int client_start_transfer(transferdata_t* const data) {
 	* Requests made using fetch() don't send these headers in real Chrome,
 	* and sending them in these cases actually breaks some sites, so strip them out.
 	*/
-	if (!(header == NULL || header->value == NULL) && strcmp(header->value, "navigate") != 0) {
+	if (header != NULL && strcmp(header->value, "navigate") != 0) {
 		tmp = curl_slist_append(data->headers, "Upgrade-Insecure-Requests:");
 
 		if (tmp == NULL) {
@@ -1837,7 +1823,7 @@ static int client_start_transfer(transferdata_t* const data) {
 				continue;
 			}
 
-			if (evutil_ascii_strcasecmp(header->key, "Requested-With") == 0 && strcmp(header->value, "XMLHttpRequest") == 0) {
+			if (evutil_ascii_strcasecmp(header->key, "X-Requested-With") == 0 && strcmp(header->value, "XMLHttpRequest") == 0) {
 				status = 0;
 			}
 
@@ -2114,7 +2100,7 @@ static int client_request_data(transferdata_t* const data, const char* const chu
 	if (data->request.method == GET && data->request.version == HTTP11) {
 		header = http_headers_get(&data->request.headers, "Upgrade");
 
-		if (header != NULL && header->value != NULL && evutil_ascii_strcasecmp(header->value, "websocket") == 0 &&
+		if (header != NULL && evutil_ascii_strcasecmp(header->value, "websocket") == 0 &&
 			http_headers_get(&data->request.headers, "Content-Length") == NULL &&
 			http_headers_get(&data->request.headers, "Transfer-Encoding") == NULL) {
 			data->flags |= TD_WEBSOCKET;
@@ -2249,11 +2235,7 @@ static int client_read(transferdata_t* const data) {
 	int wait = 0;
 	int status = 0;
 
-	int readable = 1;
-
-	while (readable && (data->flags & TD_EOF) == 0) {
-		readable = 0;
-
+	while ((data->flags & TD_EOF) == 0) {
 		if (data->state == CLIENT_STATE_HANDSHAKE) {
 			wait = 0;
 
@@ -2261,7 +2243,6 @@ static int client_read(transferdata_t* const data) {
 
 			if (status == 1) {
 				data->state = CLIENT_STATE_REQUEST;
-				readable = 1;
 
 				continue;
 			}
@@ -2334,8 +2315,6 @@ static int client_read(transferdata_t* const data) {
 				return -1;
 			}
 
-			readable = 1;
-
 			continue;
 		}
 
@@ -2375,8 +2354,6 @@ static int client_read(transferdata_t* const data) {
 				break;
 			}
 
-			readable = 1;
-
 			continue;
 		}
 
@@ -2409,7 +2386,7 @@ static int client_read(transferdata_t* const data) {
 			/* data->remaining is only decremented as cURL consumes the
 			   buffered body, exactly like in the previous design */
 
-			if ((data->flags & TD_PAUSE_UP) != 0 && data->curl != NULL) {
+			if ((data->flags & TD_PAUSE_UP) != 0) {
 				curl_easy_pause(data->curl, CURLPAUSE_SEND_CONT);
 
 				data->flags &= ~TD_PAUSE_UP;
@@ -2424,8 +2401,6 @@ static int client_read(transferdata_t* const data) {
 				return 0;
 			}
 		}
-
-		readable = 1;
 	}
 
 	return 0;
@@ -2472,7 +2447,7 @@ static void client_event_cb(evutil_socket_t fd, short events, void* arg) {
 		}
 	}
 
-	if (!dead && data->state == CLIENT_STATE_CLOSING && (data->flags & TD_FIN) != 0 && (data->flags & TD_EOF) != 0) {
+	if (!dead && (data->flags & TD_FIN) != 0 && (data->flags & TD_EOF) != 0) {
 		/* the client finished sending after its answer was delivered */
 
 		client_destroy(data);
@@ -2614,7 +2589,9 @@ static int curl_handle_socket(CURL* easy, curl_socket_t s, int action, void* use
 			/* remember which websocket transfer the upstream socket belongs
 			   to, so its relay phase can drive it once the transfer ends */
 
-			if (curl_easy_getinfo(easy, CURLINFO_PRIVATE, &data) == CURLE_OK && data != NULL && (data->flags & TD_WEBSOCKET) != 0) {
+			curl_easy_getinfo(easy, CURLINFO_PRIVATE, &data);
+
+			if (data != NULL && (data->flags & TD_WEBSOCKET) != 0) {
 				context->td = data;
 
 				data->ws_context = context;
@@ -2742,21 +2719,9 @@ static void curl_timeout_event_cb(evutil_socket_t fd, short events, void* arg) {
 
 }
 
-static int curl_retryable(CURL* const curl, const CURLcode code) {
+static int curl_retryable(const CURLcode code) {
 
 	switch (code) {
-		case CURLE_HTTP_RETURNED_ERROR: {
-			long status_code = 0;
-
-			curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
-
-			if (status_code == 408 || status_code == 429 || status_code == 500 ||
-				status_code == 502 || status_code == 503 || status_code == 504) {
-				return 1;
-			}
-
-			break;
-		}
 		case CURLE_SEND_ERROR:
 		case CURLE_OPERATION_TIMEDOUT:
 		case CURLE_PARTIAL_FILE:
@@ -2771,7 +2736,7 @@ static int curl_retryable(CURL* const curl, const CURLcode code) {
 
 }
 
-static int client_retryable(transferdata_t* const data, CURL* const curl, const CURLcode code) {
+static int client_retryable(transferdata_t* const data, const CURLcode code) {
 
 	switch (data->request.method) {
 		case GET:
@@ -2796,7 +2761,7 @@ static int client_retryable(transferdata_t* const data, CURL* const curl, const 
 		return 0;
 	}
 
-	return curl_retryable(curl, code);
+	return curl_retryable(code);
 
 }
 
@@ -2806,30 +2771,16 @@ static void curl_check_completed(void) {
 
 	transferdata_t* data = NULL;
 
-	CURLcode easy_code = 0;
 	CURLMcode code = CURLM_OK;
 
 	int left = 0;
 
 	while ((msg = curl_multi_info_read(curl_multi, &left)) != NULL) {
-		if (msg->msg != CURLMSG_DONE) {
-			continue;
-		}
-
 		if (msg->data.result != CURLE_OK) {
 			loggln(LOG_ERROR, "[error] curl: %s", curl_easy_strerror(msg->data.result));
 		}
 
-		easy_code = curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
-
-		if (easy_code != CURLE_OK) {
-			loggln(LOG_ERROR, "[error] %s: %s", strkaderr(KADERR_CURL_GETINFO_FAILURE), curl_easy_strerror(easy_code));
-
-			curl_multi_remove_handle(curl_multi, msg->easy_handle);
-			curl_easy_cleanup(msg->easy_handle);
-
-			continue;
-		}
+		curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &data);
 
 		if ((data->flags & TD_WEBSOCKET) != 0 && (data->flags & TD_WS_ESTABLISHED) != 0 && msg->data.result == CURLE_OK) {
 			/* the websocket handshake succeeded; the relay phase starts
@@ -2890,7 +2841,7 @@ static void curl_check_completed(void) {
 			loggln(LOG_ERROR, "[error] %s: %s", strkaderr(KADERR_CURL_MULTI_REMOVE_FAILURE), curl_multi_strerror(code));
 		}
 
-		if (msg->data.result != CURLE_OK && client_retryable(data, msg->easy_handle, msg->data.result)) {
+		if (client_retryable(data, msg->data.result)) {
 			data->retries++;
 
 			/* the transfer failed, but it is still retryable; discard any
@@ -3402,7 +3353,7 @@ int kad_main(int argc, argv_t** argv) {
 	}
 	
 	if (*target_platform == '\0') {
-		version = chrome_target_version(target_impersonate, 1);
+		version = chrome_android_target_version(target_impersonate);
 
 		if (version != 0) {
 			impersonate_target_base = KAD_CHROME_ANDROID_TARGET;
@@ -3455,7 +3406,7 @@ int kad_main(int argc, argv_t** argv) {
 		}
 
 		impersonate_target_version = version;
-		impersonate_target_platform = (int) index;
+		impersonate_target_platform = index;
 	}
 	
 	level = loglevel_unstringify(loglevel);
@@ -3478,21 +3429,6 @@ int kad_main(int argc, argv_t** argv) {
 		}
 	}
 
-	fd = socket(AF_INET, SOCK_STREAM, 0);
-	
-	if (fd == -1) {
-		error = get_system_error();
-		loggln(LOG_ERROR, "[error] could not create socket: %s", error.message);
-		
-		return EXIT_FAILURE;
-	}
-	
-	memset(&lingerv, 0, sizeof(lingerv));
-	
-	setsockopt(fd, SOL_SOCKET, SO_LINGER, (const char*) &lingerv, sizeof(lingerv));
-	
-	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*) &reuseaddr, sizeof(reuseaddr));
-	
 	memset(&addr_in, 0, sizeof(addr_in));
 	
 	addr_in.sin_family = AF_INET;
@@ -3515,10 +3451,25 @@ int kad_main(int argc, argv_t** argv) {
 	
 	if (sockaddress == NULL) {
 		loggln(LOG_ERROR, "[error] invalid address: %s", address);
-		
+
 		return EXIT_FAILURE;
 	}
-	
+
+	fd = socket(sockaddress->sa_family, SOCK_STREAM, 0);
+
+	if (fd == -1) {
+		error = get_system_error();
+		loggln(LOG_ERROR, "[error] could not create socket: %s", error.message);
+
+		return EXIT_FAILURE;
+	}
+
+	memset(&lingerv, 0, sizeof(lingerv));
+
+	setsockopt(fd, SOL_SOCKET, SO_LINGER, (const char*) &lingerv, sizeof(lingerv));
+
+	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*) &reuseaddr, sizeof(reuseaddr));
+
 	if (bind(fd, sockaddress, addrsize) == -1) {
 		error = get_system_error();
 		evutil_closesocket(fd);

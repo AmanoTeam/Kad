@@ -339,7 +339,7 @@ static json_t* capture_headers_json(const char* const buffer, const size_t size,
 
 		/* skip the request/status line, empty lines, obs-fold continuations and pseudo-headers */
 
-		if (separator == NULL || separator == line || *line == ' ' || *line == '\t' || *line == ':') {
+		if (separator == NULL || separator == line || *line == ' ' || *line == '\t') {
 			continue;
 		}
 
@@ -395,7 +395,9 @@ static json_t* capture_headers_json(const char* const buffer, const size_t size,
 		offset++;
 	}
 
-	qsort(items, offset, sizeof(*items), capture_header_compare);
+	if (offset > 0) {
+		qsort(items, offset, sizeof(*items), capture_header_compare);
+	}
 
 	object = json_object();
 

@@ -162,7 +162,7 @@ static void resolve_callback(
 			pkt[0] = (uint8_t) (query->id >> 8);
 			pkt[1] = (uint8_t) (query->id & 0xFF);
 			
-			if (sendto(shim_sock, (const char*) pkt, (int) packet_len, 0, (const struct sockaddr*) &query->client, query->client_len) == -1) {
+			if (sendto(shim_sock, (const char*) pkt, packet_len, 0, (const struct sockaddr*) &query->client, query->client_len) == -1) {
 				loggln(LOG_WARN, "[unbound-shim] could not send answer: %s", shim_sock_error());
 			}
 			
