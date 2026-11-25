@@ -9,6 +9,8 @@ declare -ra targets=(
 	'c-ares'
 	'cabundle'
 	'jansson'
+	'whereami'
+	'jemalloc'
 	'libevent'
 	'nghttp2'
 	'picohttpparser'
