@@ -3335,11 +3335,13 @@ static void curl_check_completed(void) {
 			capture_end(&data->capture, msg->easy_handle);
 		#endif
 
+		const CURLcode result = msg->data.result;
+
 		curl_easy_cleanup(msg->easy_handle);
 
 		data->curl = NULL;
 
-		if ((data->flags & TD_CHUNKED_RESPONSE) != 0 && msg->data.result == CURLE_OK) {
+		if ((data->flags & TD_CHUNKED_RESPONSE) != 0 && result == CURLE_OK) {
 			if (client_write(data, "0\r\n\r\n", 5) != 0) {
 				loggln(LOG_ERROR, "[error] %s", strkaderr(KADERR_SOCKET_SEND_FAILURE));
 
@@ -3358,7 +3360,7 @@ static void curl_check_completed(void) {
 		if ((data->flags & TD_KEEP_ALIVE) != 0 &&
 			(chunked ? (status && data->request.body.size == 0) : (data->remaining == 0)) &&
 			(data->flags & TD_EOF) == 0 &&
-			msg->data.result == CURLE_OK) {
+			result == CURLE_OK) {
 			/* the response is complete and the request body was fully
 			   consumed; flush it, then parse the next request */
 
