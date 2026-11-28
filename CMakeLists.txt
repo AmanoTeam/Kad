@@ -866,6 +866,7 @@ if (NOT WIN32)
 		"--with-jemalloc-prefix="
 		"--enable-static"
 		"--disable-shared"
+		"--disable-cxx"
 	)
 
 	if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
